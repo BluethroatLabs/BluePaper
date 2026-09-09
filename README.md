@@ -1,99 +1,41 @@
-# Dangerzone
+# BluePaper
 
-Take potentially dangerous PDFs, office documents, or images and convert them to a safe PDF.
+Network-service fork of [Dangerzone](https://github.com/freedomofpress/dangerzone). Callers upload an untrusted document and receive a PDF rebuilt from pixels, plus a regexp report on the original bytes so they can see that sanitization removed something real.
 
+Safety comes from **destruction**, not detection. Zero regexp hits is not “clean.” The trusted API never opens the original with a document parser. Conversion runs in a disposable Azure Container Apps Sandbox.
 
-| ![Settings](./assets/screenshot1.png) | ![Converting](./assets/screenshot2.png)
-|--|--|
+The product contract is [ARCHITECTURE.md](ARCHITECTURE.md). Deep PDF-analysis research (parser IR, JS AST, visual phishing) is **out of scope**; see [docs/research-and-architecture.md](docs/research-and-architecture.md).
 
-Dangerzone works like this: You give it a document that you don't know if you can trust (for example, an email attachment). Inside of a sandbox, Dangerzone converts the document to a PDF (if it isn't already one), and then converts the PDF into raw pixel data: a huge list of RGB color values for each page. Then, outside of the sandbox, Dangerzone takes this pixel data and converts it back into a PDF.
+## HTTP API
 
-_Read more about Dangerzone in the [official site](https://dangerzone.rocks/about/)._
+All `/v1` routes require `Authorization: Bearer <api-key>`. Conversion ids look like `cnv_…`. Hashes are SHA-256 hex.
 
-## Getting started
+- `POST /v1/conversions` — multipart `file` and optional `ocr_lang` → **202** queued
+- `GET /v1/conversions/{id}` — status only
+- `GET /v1/conversions/{id}/report` — regexp hits when conversion succeeded, or when it failed but the scan finished
+- `GET /v1/conversions/{id}/pdf` — sanitized PDF (succeeded only)
+- `DELETE /v1/conversions/{id}` — cancel or delete artifacts
+- `GET /v1/source` — AGPL corresponding source pointer
 
-Follow the instructions for each platform:
+Unsupported types return **415** before a sandbox is created. Size, concurrency, and queue limits return **413** / **429** / **503**.
 
-* [macOS](https://github.com/freedomofpress/dangerzone/blob/v0.11.0/INSTALL.md#macos)
-* [Windows](https://github.com/freedomofpress/dangerzone/blob/v0.11.0/INSTALL.md#windows)
-* [Ubuntu Linux](https://github.com/freedomofpress/dangerzone/blob/v0.11.0/INSTALL.md#ubuntu-debian)
-* [Debian Linux](https://github.com/freedomofpress/dangerzone/blob/v0.11.0/INSTALL.md#ubuntu-debian)
-* [Fedora Linux](https://github.com/freedomofpress/dangerzone/blob/v0.11.0/INSTALL.md#fedora)
-* [Qubes OS (beta)](https://github.com/freedomofpress/dangerzone/blob/v0.11.0/INSTALL.md#qubes-os)
-* [Tails](https://github.com/freedomofpress/dangerzone/blob/v0.11.0/INSTALL.md#tails)
+## Local development
 
-You can read more about our operating system support [here](https://github.com/freedomofpress/dangerzone/blob/v0.11.0/INSTALL.md#operating-system-support).
+```bash
+export BLUEPAPER_API_KEY=dev
+poetry install --with bluepaper,test
+poetry run pytest tests/bluepaper -q
 
-## Some features
-
-- Sandboxes don't have network access, so if a malicious document can compromise one, it can't phone home
-- Sandboxes use [gVisor](https://gvisor.dev/), an application kernel written in Go, that implements a substantial portion of the Linux system call interface.
-- Dangerzone can optionally OCR the safe PDFs it creates, so it will have a text layer again
-- Dangerzone compresses the safe PDF to reduce file size
-- After converting, Dangerzone lets you open the safe PDF in the PDF viewer of your choice, which allows you to open PDFs and office docs in Dangerzone by default so you never accidentally open a dangerous document
-
-Dangerzone can convert these types of document into safe PDFs:
-
-- PDF (`.pdf`)
-- Microsoft Word (`.docx`, `.doc`)
-- Microsoft Excel (`.xlsx`, `.xls`)
-- Microsoft PowerPoint (`.pptx`, `.ppt`)
-- ODF Text (`.odt`)
-- ODF Spreadsheet (`.ods`)
-- ODF Presentation (`.odp`)
-- ODF Graphics (`.odg`)
-- Hancom HWP (Hangul Word Processor) (`.hwp`, `.hwpx`)
-  * Not supported on
-    [Qubes OS](https://github.com/freedomofpress/dangerzone/issues/494)
-- EPUB (`.epub`)
-- Jpeg (`.jpg`, `.jpeg`)
-- GIF (`.gif`)
-- PNG (`.png`)
-- SVG (`.svg`)
-- other image formats (`.bmp`, `.pnm`, `.pbm`, `.ppm`, `.tif`, `.tiff`)
-
-Dangerzone was inspired by [Qubes trusted PDF](https://blog.invisiblethings.org/2013/02/21/converting-untrusted-pdfs-into-trusted.html), but it works in non-Qubes operating systems. It uses Podman containers as sandboxes instead of virtual machines.
-
-Set up a development environment by following [these instructions](/BUILD.md).
-
-# License and Copyright
-
-Licensed under the AGPLv3: [https://opensource.org/licenses/agpl-3.0](https://opensource.org/licenses/agpl-3.0)
-
-```
-Copyright © 2022–2024 Freedom of the Press Foundation and Dangerzone contributors
-Copyright © 2020–2021 First Look Media
+# API (in-memory storage; run a worker in the same process only via tests)
+poetry run bluepaper-api
 ```
 
-See also [THIRD_PARTY_NOTICE.md](THIRD_PARTY_NOTICE.md) for more information regarding the third-party software that Dangerzone depends on.
+Production isolation is `BLUEPAPER_ISOLATION=aca`. `dummy` is for tests only.
 
-## See also
+Azure deploy, identities, and disk baking: [docs/developer/azure.md](docs/developer/azure.md). Sandbox lifecycle: [docs/developer/aca-sandboxes.md](docs/developer/aca-sandboxes.md).
 
-* [GIJN Toolbox: Cutting-Edge — and Free — Online Investigative Tools You Can Try Right Now](https://gijn.org/stories/cutting-edge-free-online-investigative-tools/)
-* [When security matters: working with Qubes OS at the Guardian](https://www.theguardian.com/info/2024/apr/04/when-security-matters-working-with-qubes-os-at-the-guardian)
+The Dangerzone desktop GUI and Podman/gVisor path remain in this tree for upstream mergeability; they are not the BluePaper product.
 
-## FAQ
+## License
 
-### Has Dangerzone received a security audit?
-
-Yes, Dangerzone received its [first security audit](https://freedom.press/news/dangerzone-receives-favorable-audit/) by [Include Security](https://includesecurity.com/) in December 2023. The audit was generally favorable, as it didn't identify any high-risk findings, except for 3 low-risk and 7 informational findings.
-
-### "I'm experiencing an issue while using Dangerzone."
-
-Dangerzone gets updates to improve its features _and_ to fix problems. So, updating may be the simplest path to resolving the issue which brought you here. Here is how to update:
-
-1. Check which version of Dangerzone you are currently using: run Dangerzone, then look for a series of numbers to the right of the logo within the app. The format of the numbers will look similar to `0.4.1`
-2. Now find the latest available version of Dangerzone: go to the [download page](https://dangerzone.rocks/#downloads). Look for the version number displayed. The number will be using the same format as in Step 1.
-3. Is the version on the Dangerzone download page higher than the version of your installed app? Go ahead and update.
-
-### Can I run Dangerzone in an airgapped environment?
-
-Yes, Dangerzone is designed to run in airgapped environments without any
-configuration. If you want to update its container image, follow
-[our instructions](docs/developer/independent-container-updates.md#Installing-image-updates-to-airgapped-environments).
-
-### Can I use a custom runtime, such as Podman Desktop?
-
-On Windows and macOS, Dangerzone embeds Podman, so there is no need to.
-
-To use a different podman version, such as Podman Desktop, [follow our documentation](https://github.com/freedomofpress/dangerzone/blob/main/docs/podman-desktop.md).
+AGPLv3. Offering BluePaper as a network service requires providing corresponding source to users of that service (`GET /v1/source`, and this repository).

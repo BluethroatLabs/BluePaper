@@ -1,0 +1,25 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    DANGERZONE_DEV=0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-worker.txt /app/requirements-worker.txt
+COPY requirements-api.txt /app/requirements-api.txt
+RUN pip install --no-cache-dir -r /app/requirements-worker.txt
+
+COPY bluepaper /app/bluepaper
+COPY dangerzone /app/dangerzone
+COPY share /app/share
+
+RUN useradd --create-home --uid 10001 bluepaper
+USER bluepaper
+
+CMD ["python", "-m", "bluepaper.worker"]

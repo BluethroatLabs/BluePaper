@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+tests
+docs
+assets
+install
+dev_scripts
+*.md
+!ARCHITECTURE.md

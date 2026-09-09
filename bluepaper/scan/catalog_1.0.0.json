@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "patterns": [
+    {"id": "pdf.javascript", "literals": ["/JavaScript", "/JS"]},
+    {"id": "pdf.openaction", "literals": ["/OpenAction"]},
+    {"id": "pdf.aa", "literals": ["/AA"]},
+    {"id": "pdf.launch", "literals": ["/Launch"]},
+    {"id": "pdf.embeddedfile", "literals": ["/EmbeddedFile"]},
+    {"id": "pdf.richmedia", "literals": ["/RichMedia"]},
+    {"id": "pdf.xfa", "literals": ["/XFA"]},
+    {"id": "pdf.submitform", "literals": ["/SubmitForm"]},
+    {"id": "pdf.gotor", "literals": ["/GoToR"]},
+    {"id": "pdf.uri", "literals": ["/URI"]},
+    {"id": "pdf.encrypt", "literals": ["/Encrypt"]},
+    {"id": "pdf.objstm", "literals": ["/ObjStm"]},
+    {"id": "office.vba_project", "literals": ["vbaProject.bin"]},
+    {"id": "office.ole_magic", "hex": "d0cf11e0a1b11ae1"},
+    {"id": "office.dde", "literals": ["DDEAUTO", "DDE ", "\u0013DDE"]},
+    {"id": "office.external_rel", "literals": ["externalLink", "TargetMode=\"External\"", "oleObject"]},
+    {"id": "office.activex", "literals": ["activeX", "ActiveXObject", "axobject"]},
+    {"id": "polyglot.html_hta", "literals": ["<html", "<HTML", "<Html", "HTA:APPLICATION", "hta:application"]},
+    {"id": "polyglot.pdf_not_at_zero", "kind": "pdf_not_at_zero"},
+    {"id": "polyglot.zip_pdf", "kind": "zip_and_pdf"}
+  ]
+}

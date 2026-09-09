@@ -7,6 +7,10 @@ authors = [
     "Micah Lee <micah.lee@theintercept.com>",
 ]
 license = "AGPL-3.0"
+packages = [
+    { include = "dangerzone" },
+    { include = "bluepaper" },
+]
 # NOTE: See also https://github.com/freedomofpress/dangerzone/issues/677
 include = [
     { path = "share/*", format = "sdist" },
@@ -34,6 +38,8 @@ dangerzone-cli = "dangerzone.cli:run"
 dangerzone-image = "dangerzone.updater.cli:run"
 dangerzone-machine = "dangerzone.podman.cli:main"
 dangerzone = "dangerzone.gui.run:run"
+bluepaper-api = "bluepaper.api.app:run"
+bluepaper-worker = "bluepaper.worker.main:run"
 
 # Dependencies required for packaging the code on various platforms.
 [tool.poetry.group.package.dependencies]
@@ -64,6 +70,19 @@ pytest-cov = "*"
 strip-ansi = "*"
 pytest-subprocess = "*"
 pytest-rerunfailures = "*"
+httpx = "*"
+httpx2 = ">=2.0.0"
+
+[tool.poetry.group.bluepaper.dependencies]
+fastapi = ">=0.141.0"
+uvicorn = { extras = ["standard"], version = "^0.32.0" }
+python-multipart = "*"
+pydantic-settings = "^2.6.0"
+azure-identity = "^1.19.0"
+azure-storage-blob = "^12.24.0"
+azure-storage-queue = "^12.12.0"
+azure-data-tables = "^12.6.0"
+azure-containerapps-sandbox = { version = "0.1.0b4", allow-prereleases = true }
 
 [tool.poetry.group.debian.dependencies]
 pymupdf = "*"
@@ -112,11 +131,13 @@ requires = ["poetry-core>=1.2.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 filterwarnings = [
   "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
   "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
   "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
   "ignore:NotImplemented should not be used in a boolean context",
+  "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning:starlette.testclient",
 ]
 
 [tool.mazette.asset.tessdata]

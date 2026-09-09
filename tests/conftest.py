@@ -1,18 +1,19 @@
+from __future__ import annotations
+
 import platform
 import sys
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
-from pytest_mock import MockerFixture
 
-from dangerzone import container_utils
 from dangerzone.document import SAFE_EXTENSION
-from dangerzone.gui import Application
-from dangerzone.isolation_provider import container
-from dangerzone.settings import Settings
+
+if TYPE_CHECKING:
+    from dangerzone.gui import Application
+    from dangerzone.settings import Settings
 
 sys.dangerzone_dev = True  # type: ignore[attr-defined]
 
@@ -33,17 +34,23 @@ TAMPERED_SIGNATURES_PATH = ASSETS_PATH / "signatures" / "tampered"
 
 
 @pytest.fixture(autouse=True)
-def isolated_settings(mocker: MockerFixture, tmp_path: Path) -> Settings:
+def isolated_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Settings:
     # Reset the singleton before constructing a new instance, so each test gets
     # a fresh Settings tied to its own tmp_path. Without this, Settings() may
     # return a stale instance from a previous test.
+    from dangerzone.settings import Settings
+
     Settings._singleton = None
-    mocker.patch("dangerzone.settings.get_config_dir", return_value=tmp_path)
+    monkeypatch.setattr(
+        "dangerzone.settings.get_config_dir", lambda: tmp_path
+    )
     return Settings()
 
 
 @pytest.fixture(autouse=True)
 def setup_function() -> Generator[None, None, None]:
+    from dangerzone import container_utils
+
     container_utils.init_podman_command.cache_clear()
     yield
 
@@ -52,13 +59,28 @@ def setup_function() -> Generator[None, None, None]:
 # See https://pytest-qt.readthedocs.io/en/latest/qapplication.html#testing-custom-qapplications
 @pytest.fixture(scope="session")
 def qapp_cls() -> type[Application]:
+    from dangerzone.gui import Application
+
     return Application
 
 
 # Use this fixture to make `pytest-qt` invoke our custom QApplication.
 # See https://pytest-qt.readthedocs.io/en/latest/qapplication.html#testing-custom-qapplications
 @pytest.fixture(autouse=True)
-def machine_stop(mocker: MockerFixture) -> MagicMock:
+def machine_stop(request: pytest.FixtureRequest) -> MagicMock:
+    # pytest-mock's mocker.stop() is used by a Podman test to undo this patch.
+    # Fall back to monkeypatch when that plugin is not installed (e.g. a
+    # globally installed pytest collecting BluePaper tests).
+    try:
+        mocker = request.getfixturevalue("mocker")
+    except pytest.FixtureLookupError:
+        monkeypatch = request.getfixturevalue("monkeypatch")
+        stop = MagicMock()
+        monkeypatch.setattr(
+            "dangerzone.podman.command.machine_manager.MachineManager.stop",
+            stop,
+        )
+        return stop
     return mocker.patch("dangerzone.podman.command.machine_manager.MachineManager.stop")
 
 
@@ -141,6 +163,8 @@ def sample_pdf2() -> str:
 
 @pytest.fixture
 def skip_image_verification(monkeypatch: Any) -> None:
+    from dangerzone.isolation_provider import container
+
     def noop(*args: Any, **kwargs: Any) -> bool:
         return True
 

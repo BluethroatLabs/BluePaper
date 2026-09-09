@@ -142,7 +142,8 @@ debian/dangerzone-full.*
 .pybuild/
 
 # Other
-.vscode
+.vscode/*
+!.vscode/settings.json
 *.tar.gz
 deb_dist
 .DS_Store

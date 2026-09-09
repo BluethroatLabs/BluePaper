@@ -1,0 +1,18 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
+
+COPY requirements-api.txt /app/requirements-api.txt
+RUN pip install --no-cache-dir -r /app/requirements-api.txt
+
+COPY bluepaper /app/bluepaper
+COPY share/ocr-languages.json /app/share/ocr-languages.json
+
+RUN useradd --create-home --uid 10001 bluepaper
+USER bluepaper
+
+EXPOSE 8080
+CMD ["python", "-m", "bluepaper.api"]
