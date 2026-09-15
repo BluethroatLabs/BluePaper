@@ -3,14 +3,15 @@
 # Target:
 #   /subscriptions/1e238434-310b-4bcd-ab1f-a9381d170243/resourceGroups/rg-bluepaper-wehi-sandbox
 #
-# Prereqs: `az login`, Docker, `BLUEPAPER_API_KEY` (env or `.env`).
+# Prereqs: `az login`, Podman, `BLUEPAPER_API_KEY` (env or `.env`).
 # Images go to ACR. Pass `acr=myregistry.azurecr.io` or set `ACR` if the RG has none.
 #
 #   just              # this list
 #   just use          # select the subscription
 #   just deploy       # build, push, bicep, worker sandbox role
+#   just openapi      # write docs/openapi.json
 #   just disk         # bake the Dangerzone conversion disk (`aca` CLI)
-#   just smoke        # GET /healthz
+#   just smoke        # GET /healthz and /openapi.json
 
 set dotenv-load := true
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
@@ -22,7 +23,7 @@ worker_name := "bluepaper-worker"
 sandbox_group := "bluepaper-sandboxes"
 dangerzone_image := "ghcr.io/freedomofpress/dangerzone/v1:latest"
 tag := env("TAG", "latest")
-acr := env("ACR", "")
+acr := env("ACR", "bsspike08250621.azurecr.io")
 
 export AZURE_SUBSCRIPTION_ID := subscription
 export BLUEPAPER_AZURE_SUBSCRIPTION_ID := subscription
@@ -46,13 +47,16 @@ build:
     set -euo pipefail
     az account set --subscription "{{ subscription }}"
     acr="$(just acr='{{ acr }}' _acr)"
-    az acr login --name "${acr%%.*}"
-    docker build --platform linux/amd64 -f Dockerfile.api \
+    token="$(az acr login --name "${acr%%.*}" --expose-token --output tsv --query accessToken)"
+    printf '%s\n' "$token" | podman login "$acr" \
+      --username 00000000-0000-0000-0000-000000000000 \
+      --password-stdin
+    podman build --platform linux/amd64 -f Dockerfile.api \
       -t "$acr/{{ api_name }}:{{ tag }}" .
-    docker build --platform linux/amd64 -f Dockerfile.worker \
+    podman build --platform linux/amd64 -f Dockerfile.worker \
       -t "$acr/{{ worker_name }}:{{ tag }}" .
-    docker push "$acr/{{ api_name }}:{{ tag }}"
-    docker push "$acr/{{ worker_name }}:{{ tag }}"
+    podman push "$acr/{{ api_name }}:{{ tag }}"
+    podman push "$acr/{{ worker_name }}:{{ tag }}"
 
 # Deploy Container Apps, storage, and (if the preview type works) the sandbox group.
 infra:
@@ -137,11 +141,16 @@ deploy: use build infra sandbox-group worker-role
     @echo "API: https://$(az containerapp show -g "{{ rg }}" -n "{{ api_name }}" --query properties.configuration.ingress.fqdn -o tsv)"
     @echo "Next: just disk   # bake conversion image, then just smoke"
 
-# GET /healthz on the deployed API.
+# GET /healthz and /openapi.json on the deployed API.
 smoke:
     az account set --subscription "{{ subscription }}"
     fqdn="$(az containerapp show -g "{{ rg }}" -n "{{ api_name }}" --query properties.configuration.ingress.fqdn -o tsv)"; \
-    curl -fsS "https://$fqdn/healthz"; echo
+    curl -fsS "https://$fqdn/healthz"; echo; \
+    curl -fsS "https://$fqdn/openapi.json" | python -c 'import json,sys; spec=json.load(sys.stdin); print(spec["info"]["title"], "openapi", spec["openapi"], "paths", len(spec["paths"]))'
+
+# Write docs/openapi.json from the FastAPI schema.
+openapi out="docs/openapi.json":
+    BLUEPAPER_API_KEY=dev poetry run python -c 'from bluepaper.api.app import write_openapi; write_openapi("{{ out }}")'
 
 # Live ACA sandbox spike (needs Container Apps SandboxGroup Data Owner).
 spike:

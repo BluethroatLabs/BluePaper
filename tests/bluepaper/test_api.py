@@ -9,6 +9,33 @@ def test_healthz_needs_no_auth(client) -> None:
     assert response.status_code == 200
 
 
+def test_openapi_is_public_and_documents_bearer_auth(client) -> None:
+    docs = client.get("/docs")
+    assert docs.status_code == 200
+    spec = client.get("/openapi.json")
+    assert spec.status_code == 200
+    body = spec.json()
+    assert body["info"]["title"] == "BluePaper"
+    paths = body["paths"]
+    for path in (
+        "/healthz",
+        "/v1/source",
+        "/v1/conversions",
+        "/v1/conversions/{conversion_id}",
+        "/v1/conversions/{conversion_id}/report",
+        "/v1/conversions/{conversion_id}/pdf",
+    ):
+        assert path in paths
+    schemes = body["components"]["securitySchemes"]
+    assert any(
+        scheme.get("type") == "http" and scheme.get("scheme") == "bearer"
+        for scheme in schemes.values()
+    )
+    post = paths["/v1/conversions"]["post"]
+    assert post.get("security") or body.get("security")
+    assert "security" not in paths["/healthz"]["get"]
+
+
 def test_missing_key_is_401(client) -> None:
     response = client.post("/v1/conversions")
     assert response.status_code == 401

@@ -10,6 +10,8 @@ The product contract is [ARCHITECTURE.md](ARCHITECTURE.md). Deep PDF-analysis re
 
 All `/v1` routes require `Authorization: Bearer <api-key>`. Conversion ids look like `cnv_…`. Hashes are SHA-256 hex.
 
+OpenAPI is unauthenticated: `GET /openapi.json` (spec) and `GET /docs` (Swagger UI).
+
 - `POST /v1/conversions` — multipart `file` and optional `ocr_lang` → **202** queued
 - `GET /v1/conversions/{id}` — status only
 - `GET /v1/conversions/{id}/report` — regexp hits when conversion succeeded, or when it failed but the scan finished

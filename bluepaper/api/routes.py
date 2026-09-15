@@ -20,6 +20,8 @@ from bluepaper.models import (
     AcceptedResponse,
     ConversionRecord,
     ConversionStatus,
+    ErrorResponse,
+    Report,
     SourceResponse,
     StatusResponse,
     utc_now,
@@ -29,12 +31,31 @@ from bluepaper.storage.base import Stores
 
 router = APIRouter(prefix="/v1", dependencies=[Depends(require_api_key)])
 
+ERROR_401 = {
+    status.HTTP_401_UNAUTHORIZED: {
+        "model": ErrorResponse,
+        "description": "Missing or invalid API key",
+    }
+}
+ERROR_404 = {
+    status.HTTP_404_NOT_FOUND: {
+        "model": ErrorResponse,
+        "description": "Conversion not found",
+    }
+}
+
 
 def get_stores(request: Request) -> Stores:
     return request.app.state.stores  # type: ignore[no-any-return]
 
 
-@router.get("/source", response_model=SourceResponse)
+@router.get(
+    "/source",
+    response_model=SourceResponse,
+    tags=["meta"],
+    summary="AGPL corresponding source",
+    responses=ERROR_401,
+)
 def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceResponse:
     return SourceResponse(
         source_url=settings.source_url,
@@ -42,7 +63,33 @@ def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceRespon
     )
 
 
-@router.post("/conversions", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/conversions",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=AcceptedResponse,
+    tags=["conversions"],
+    summary="Queue a conversion",
+    responses={
+        **ERROR_401,
+        status.HTTP_400_BAD_REQUEST: {
+            "model": ErrorResponse,
+            "description": "Unsupported ocr_lang",
+        },
+        413: {"model": ErrorResponse, "description": "File too large"},
+        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {
+            "model": ErrorResponse,
+            "description": "Unsupported file type",
+        },
+        status.HTTP_429_TOO_MANY_REQUESTS: {
+            "model": ErrorResponse,
+            "description": "Concurrency limit",
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
+            "description": "Queue saturated",
+        },
+    },
+)
 async def create_conversion(
     settings: Annotated[Settings, Depends(get_settings)],
     stores: Annotated[Stores, Depends(get_stores)],
@@ -110,7 +157,13 @@ async def create_conversion(
     )
 
 
-@router.get("/conversions/{conversion_id}", response_model=StatusResponse)
+@router.get(
+    "/conversions/{conversion_id}",
+    response_model=StatusResponse,
+    tags=["conversions"],
+    summary="Get conversion status",
+    responses={**ERROR_401, **ERROR_404},
+)
 def get_conversion(
     conversion_id: str,
     stores: Annotated[Stores, Depends(get_stores)],
@@ -119,7 +172,21 @@ def get_conversion(
     return _status_response(record)
 
 
-@router.get("/conversions/{conversion_id}/report")
+@router.get(
+    "/conversions/{conversion_id}/report",
+    tags=["conversions"],
+    summary="Get regexp report",
+    response_class=Response,
+    responses={
+        200: {"model": Report, "description": "Regexp hits on the original bytes"},
+        **ERROR_401,
+        **ERROR_404,
+        status.HTTP_409_CONFLICT: {
+            "model": ErrorResponse,
+            "description": "Report not available yet",
+        },
+    },
+)
 def get_report(
     conversion_id: str,
     stores: Annotated[Stores, Depends(get_stores)],
@@ -141,7 +208,26 @@ def get_report(
     )
 
 
-@router.get("/conversions/{conversion_id}/pdf")
+@router.get(
+    "/conversions/{conversion_id}/pdf",
+    tags=["conversions"],
+    summary="Download sanitized PDF",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "PDF rebuilt from pixels",
+            "content": {
+                "application/pdf": {"schema": {"type": "string", "format": "binary"}}
+            },
+        },
+        **ERROR_401,
+        **ERROR_404,
+        status.HTTP_409_CONFLICT: {
+            "model": ErrorResponse,
+            "description": "PDF not available yet",
+        },
+    },
+)
 def get_pdf(
     conversion_id: str,
     stores: Annotated[Stores, Depends(get_stores)],
@@ -161,7 +247,13 @@ def get_pdf(
     return Response(content=payload, media_type="application/pdf")
 
 
-@router.delete("/conversions/{conversion_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/conversions/{conversion_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["conversions"],
+    summary="Cancel or delete a conversion",
+    responses={**ERROR_401, **ERROR_404},
+)
 def delete_conversion(
     conversion_id: str,
     stores: Annotated[Stores, Depends(get_stores)],

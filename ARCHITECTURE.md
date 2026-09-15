@@ -83,7 +83,7 @@ sequenceDiagram
 
 ### Authentication and tenancy
 
-All routes require `Authorization: Bearer <api-key>`. v1 is a **single-tenant** REST API in the operator’s Azure subscription. Samples stay in that tenant. This is not a public multi-tenant SaaS.
+`/v1` routes require `Authorization: Bearer <api-key>`. `/healthz`, `/openapi.json`, `/docs`, and `/redoc` do not. v1 is a **single-tenant** REST API in the operator’s Azure subscription. Samples stay in that tenant. This is not a public multi-tenant SaaS.
 
 ### Pinning
 

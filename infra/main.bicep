@@ -14,12 +14,19 @@ param apiImage string
 @description('Worker container image')
 param workerImage string
 
+@description('Assign storage data-plane roles to the API and worker. Requires permission to assign Blob/Queue/Table Data Contributor.')
+param assignRoles bool = false
+
+@description('Create the preview sandbox group via ARM. If this fails, use `aca sandboxgroup create` instead.')
+param deploySandboxGroup bool = false
+
 var storageName = toLower(take('${prefix}st${uniqueString(resourceGroup().id)}', 24))
 var envName = '${prefix}-env'
 var apiName = '${prefix}-api'
 var workerName = '${prefix}-worker'
 var sandboxGroupName = '${prefix}-sandboxes'
 var workspaceName = '${prefix}-logs'
+var acrServer = split(apiImage, '/')[0]
 
 var blobContributor = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
@@ -31,7 +38,7 @@ var queueContributor = subscriptionResourceId(
 )
 var tableContributor = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
-  '0a9a7e1f-b9d0-4cc5-a95f-cc8c87c809a7'
+  '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 )
 
 resource workspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
@@ -113,6 +120,12 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
       secrets: [
         { name: 'api-key', value: apiKey }
       ]
+      registries: [
+        {
+          server: acrServer
+          identity: 'system'
+        }
+      ]
     }
     template: {
       containers: [
@@ -134,7 +147,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       scale: {
-        minReplicas: 0
+        minReplicas: 1
         maxReplicas: 5
       }
     }
@@ -150,6 +163,12 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
     configuration: {
       secrets: [
         { name: 'api-key', value: apiKey }
+      ]
+      registries: [
+        {
+          server: acrServer
+          identity: 'system'
+        }
       ]
     }
     template: {
@@ -170,7 +189,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       scale: {
-        minReplicas: 0
+        minReplicas: 1
         maxReplicas: 8
         rules: [
           {
@@ -191,13 +210,12 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 // Preview ARM type. If deploy fails, create the group with `aca sandboxgroup create`.
-// Product docs also name this Microsoft.App/SandboxGroups.
-resource sandboxGroup 'Microsoft.ContainerInstance/sandboxGroups@2026-06-01-preview' = {
+resource sandboxGroup 'Microsoft.App/sandboxGroups@2026-02-01-preview' = if (deploySandboxGroup) {
   name: sandboxGroupName
   location: location
 }
 
-resource apiBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource apiBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (assignRoles) {
   name: guid(storageAccount.id, apiApp.id, 'blob')
   scope: storageAccount
   properties: {
@@ -207,7 +225,7 @@ resource apiBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource apiQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource apiQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (assignRoles) {
   name: guid(storageAccount.id, apiApp.id, 'queue')
   scope: storageAccount
   properties: {
@@ -217,7 +235,7 @@ resource apiQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource apiTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource apiTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (assignRoles) {
   name: guid(storageAccount.id, apiApp.id, 'table')
   scope: storageAccount
   properties: {
@@ -227,7 +245,7 @@ resource apiTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource workerBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource workerBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (assignRoles) {
   name: guid(storageAccount.id, workerApp.id, 'blob')
   scope: storageAccount
   properties: {
@@ -237,7 +255,7 @@ resource workerBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource workerQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource workerQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (assignRoles) {
   name: guid(storageAccount.id, workerApp.id, 'queue')
   scope: storageAccount
   properties: {
@@ -247,7 +265,7 @@ resource workerQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
-resource workerTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource workerTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (assignRoles) {
   name: guid(storageAccount.id, workerApp.id, 'table')
   scope: storageAccount
   properties: {
@@ -259,5 +277,5 @@ resource workerTableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
 
 output storageAccountName string = storageAccount.name
 output apiFqdn string = apiApp.properties.configuration.ingress.fqdn
-output sandboxGroupName string = sandboxGroup.name
+output sandboxGroupName string = sandboxGroupName
 output workerPrincipalId string = workerApp.identity.principalId

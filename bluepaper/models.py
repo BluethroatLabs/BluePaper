@@ -122,6 +122,14 @@ class SourceResponse(BaseModel):
     commit: str | None = None
 
 
+class HealthResponse(BaseModel):
+    status: str
+
+
+class ErrorResponse(BaseModel):
+    detail: str
+
+
 class ScanResult:
     __slots__ = ("hits", "catalog_version", "timed_out")
 

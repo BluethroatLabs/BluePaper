@@ -5,10 +5,14 @@ Single-tenant conversion API in the operator’s subscription. Architecture: [AR
 ## Images
 
 ```bash
-docker build -f Dockerfile.api -t "$ACR/bluepaper-api:latest" .
-docker build -f Dockerfile.worker -t "$ACR/bluepaper-worker:latest" .
-docker push "$ACR/bluepaper-api:latest"
-docker push "$ACR/bluepaper-worker:latest"
+TOKEN=$(az acr login --name "${ACR%%.*}" --expose-token --output tsv --query accessToken)
+printf '%s\n' "$TOKEN" | podman login "$ACR" \
+  --username 00000000-0000-0000-0000-000000000000 \
+  --password-stdin
+podman build --platform linux/amd64 -f Dockerfile.api -t "$ACR/bluepaper-api:latest" .
+podman build --platform linux/amd64 -f Dockerfile.worker -t "$ACR/bluepaper-worker:latest" .
+podman push "$ACR/bluepaper-api:latest"
+podman push "$ACR/bluepaper-worker:latest"
 ```
 
 The API image must not run document parsers. The worker image includes PyMuPDF and Tesseract for `pixels_to_pdf` only.
@@ -67,6 +71,8 @@ poetry run pytest tests/bluepaper -q
 Dummy isolation is the default (`BLUEPAPER_ISOLATION=dummy`). Do not use Dummy in production.
 
 ## Live smoke
+
+OpenAPI is at `https://<api-fqdn>/openapi.json` (Swagger UI at `/docs`).
 
 1. `poetry run python dev_scripts/aca_spike.py`
 2. `POST /v1/conversions` with a small PDF
