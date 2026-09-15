@@ -211,6 +211,9 @@ def test_connect_requires_subscription_and_group(settings) -> None:
     settings.sandbox_group = None
     with pytest.raises(RuntimeError, match="SANDBOX_GROUP"):
         _connect_and_create(settings)
+    settings.sandbox_group = "bluepaper-sandboxes"
+    with pytest.raises(RuntimeError, match="SANDBOX_DISK"):
+        _connect_and_create(settings)
 
 
 def test_deny_all_egress_prefers_full_inspection() -> None:

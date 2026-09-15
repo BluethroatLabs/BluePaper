@@ -77,7 +77,7 @@ def main() -> int:
     if disk_id:
         create_kwargs["disk_id"] = disk_id
     else:
-        create_kwargs["disk"] = "python"
+        create_kwargs["disk"] = "python-3.12"
 
     sandbox = None
     findings: dict = {"live": True, "deleted": False}

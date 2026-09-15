@@ -27,6 +27,39 @@ from bluepaper.storage.base import Stores
 
 log = logging.getLogger("bluepaper.worker")
 
+_CAPACITY_MARKERS = (
+    "429",
+    "toomanyrequests",
+    "too many requests",
+    "throttl",
+    "quota exceeded",
+    "insufficient capacity",
+)
+_DISK_MARKERS = ("diskimagenotfound", "disk image")
+
+
+def public_conversion_error(exc: BaseException) -> str:
+    """Stable, secret-free error for the conversion status row."""
+    hay = f"{type(exc).__name__} {_azure_error_code(exc)} {exc}".lower()
+    if any(marker in hay for marker in _DISK_MARKERS):
+        return "conversion sandbox disk is not configured"
+    if any(marker in hay for marker in _CAPACITY_MARKERS):
+        return "conversion capacity is full"
+    if type(exc).__name__ in {
+        "HttpResponseError",
+        "ServiceRequestError",
+        "ServiceResponseError",
+    }:
+        return "conversion sandbox request failed"
+    text = str(exc).strip().splitlines()[0][:240]
+    return text or "conversion failed"
+
+
+def _azure_error_code(exc: BaseException) -> str:
+    error = getattr(exc, "error", None)
+    code = getattr(error, "code", None) or getattr(exc, "code", None)
+    return str(code or "")
+
 
 class IsolationLike(Protocol):
     def convert(
@@ -126,7 +159,7 @@ def process_one(
             conv_future.result(timeout=settings.conversion_timeout_seconds)
         except Exception as exc:
             log.exception("conversion failed conversion_id=%s", record.id)
-            conv_error = type(exc).__name__
+            conv_error = public_conversion_error(exc)
 
     latest = stores.table.get(record.id)
     if latest is not None and latest.status == ConversionStatus.cancelled:

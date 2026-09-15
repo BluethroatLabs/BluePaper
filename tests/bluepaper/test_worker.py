@@ -6,7 +6,12 @@ from bluepaper.isolation.aca import AcaIsolationProvider
 from bluepaper.isolation.dummy import InProcessDummy
 from bluepaper.models import ConversionRecord, ConversionStatus, utc_now
 from bluepaper.scan.scanner import ScanTimeout
-from bluepaper.worker.job import _update_stage, get_isolation, process_one
+from bluepaper.worker.job import (
+    _update_stage,
+    get_isolation,
+    process_one,
+    public_conversion_error,
+)
 from tests.bluepaper.conftest import auth
 
 
@@ -152,6 +157,24 @@ def test_scan_timeout_still_converts(
     assert pdf.status_code == 200
 
 
+def test_public_conversion_error_hides_azure_class_names() -> None:
+    class HttpResponseError(Exception):
+        pass
+
+    disk = HttpResponseError(
+        "(DiskImageNotFound) Disk image with name 'python' not found"
+    )
+    disk.error = type("E", (), {"code": "DiskImageNotFound"})()
+    assert public_conversion_error(disk) == "conversion sandbox disk is not configured"
+
+    busy = HttpResponseError("429 TooManyRequests")
+    assert public_conversion_error(busy) == "conversion capacity is full"
+
+    other = HttpResponseError("backend 500")
+    assert public_conversion_error(other) == "conversion sandbox request failed"
+    assert public_conversion_error(ValueError("pages overflow")) == "pages overflow"
+
+
 def test_isolation_exception_name_is_recorded(client, stores, settings) -> None:
     class BoomIsolation:
         def convert(self, document, ocr_lang, progress_callback=None) -> None:
@@ -161,7 +184,7 @@ def test_isolation_exception_name_is_recorded(client, stores, settings) -> None:
     assert process_one(settings, stores, BoomIsolation()) is True
     status = client.get(f"/v1/conversions/{conversion_id}", headers=auth()).json()
     assert status["status"] == ConversionStatus.failed.value
-    assert status["error"] == "ValueError"
+    assert status["error"] == "sandbox exploded"
 
 
 def test_cancel_during_convert_keeps_cancelled(

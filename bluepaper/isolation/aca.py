@@ -117,6 +117,8 @@ def _connect_and_create(settings: Settings) -> SandboxSession:
         raise RuntimeError("Azure subscription and resource group are required")
     if not settings.sandbox_group:
         raise RuntimeError("BLUEPAPER_SANDBOX_GROUP is required")
+    if not settings.sandbox_disk_id:
+        raise RuntimeError("BLUEPAPER_SANDBOX_DISK_ID is required")
 
     from azure.identity import DefaultAzureCredential
 
@@ -143,11 +145,8 @@ def _connect_and_create(settings: Settings) -> SandboxSession:
         "memory": "4096Mi",
         "egress_policy": egress,
         "labels": {"bluepaper": "conversion"},
+        "disk_id": settings.sandbox_disk_id,
     }
-    if settings.sandbox_disk_id:
-        create_kwargs["disk_id"] = settings.sandbox_disk_id
-    else:
-        create_kwargs["disk"] = "python"
     sandbox = client.begin_create_sandbox(**create_kwargs).result()
     return sandbox  # type: ignore[no-any-return]
 
