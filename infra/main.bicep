@@ -202,6 +202,12 @@ resource workerApp 'Microsoft.App/containerApps@2025-07-01' = {
         {
           name: 'worker'
           image: workerImage
+          // A 64-page A4 file is ~400 MiB of 150 DPI RGB. The default 1 Gi
+          // container is killed while reading that, and the row stays running.
+          resources: {
+            cpu: json('2')
+            memory: '4Gi'
+          }
           env: workerEnv
         }
       ]

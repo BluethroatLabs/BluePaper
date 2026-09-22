@@ -139,6 +139,20 @@ def test_missing_record_completes_lease(settings, stores) -> None:
     assert stores.queue.lease(1) is None
 
 
+def test_finished_job_is_not_rerun(client, stores, settings) -> None:
+    conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
+    record = stores.table.get(conversion_id)
+    assert record is not None
+    record.status = ConversionStatus.failed
+    record.error = "conversion worker stopped"
+    stores.table.update(record)
+    assert process_one(settings, stores, FailingIsolation()) is True
+    status = client.get(f"/v1/conversions/{conversion_id}", headers=auth()).json()
+    assert status["status"] == ConversionStatus.failed.value
+    assert status["error"] == "conversion worker stopped"
+    assert stores.queue.lease(1) is None
+
+
 def test_poisoned_queue_message(client, stores, settings) -> None:
     settings.max_dequeues = 0
     conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")

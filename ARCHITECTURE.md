@@ -181,7 +181,7 @@ Prefer streaming Dangerzone’s pixel protocol (width, height, RGB) over writing
 
 - Page count, pixel dimensions, wall clock, output size.
 - Sandbox kill or timeout → conversion `failed` (not a malware verdict).
-- Default resource tier **L** (2 vCPU, 4 GB). LibreOffice is heavy; XS/S are likely too small.
+- Default resource tier **XL** (4 vCPU, 8 GB), the largest sandbox tier. LibreOffice is heavy; XS/S are too small.
 
 OCR is optional (`ocr_lang` on submit). It runs on the trusted pixel plane, after rasterization, so it cannot reintroduce active content from the original.
 
@@ -320,7 +320,7 @@ Managed identity on the API and worker only. Sandboxes do not use that identity.
 
 - Resource: `Microsoft.App/SandboxGroups`; data plane for individual sandboxes.
 - Hardware-isolated microVM per sandbox; per-sandbox egress policy set to deny-all.
-- Default conversion tier: **L**.
+- Default conversion tier: **XL**.
 - Lifecycle: create → run `doc_to_pixels` → delete. Idle suspend/resume is for **clean** golden images only, never for a sandbox that processed an upload.
 
 ### Preview risk

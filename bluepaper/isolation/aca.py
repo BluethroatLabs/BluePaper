@@ -146,8 +146,8 @@ def _connect_and_create(settings: Settings) -> SandboxSession:
     )
     egress = _deny_all_egress(EgressPolicy)
     create_kwargs: dict = {
-        "cpu": "2000m",
-        "memory": "4096Mi",
+        "cpu": "4000m",
+        "memory": "8192Mi",
         "egress_policy": egress,
         "labels": {"bluepaper": "conversion"},
         "disk_id": settings.sandbox_disk_id,

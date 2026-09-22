@@ -94,7 +94,11 @@ def process_one(
     if record is None:
         stores.queue.complete(lease)
         return True
-    if record.status == ConversionStatus.cancelled:
+    if record.status in (
+        ConversionStatus.cancelled,
+        ConversionStatus.failed,
+        ConversionStatus.succeeded,
+    ):
         stores.queue.complete(lease)
         return True
     if lease.dequeue_count > settings.max_dequeues:

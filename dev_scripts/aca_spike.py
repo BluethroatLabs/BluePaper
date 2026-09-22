@@ -69,8 +69,8 @@ def main() -> int:
     )
 
     create_kwargs: dict = {
-        "cpu": "2000m",
-        "memory": "4096Mi",
+        "cpu": "4000m",
+        "memory": "8192Mi",
         "egress_policy": EgressPolicy(default_action="Deny"),
         "labels": {"bluepaper": "spike"},
     }

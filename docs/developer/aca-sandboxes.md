@@ -14,7 +14,7 @@ Live Azure was not available when this was written (`az account show` failed). T
 
 **Chosen v1 path**
 
-1. Create sandbox from a **clean** Dangerzone disk (`create_disk_image` from the upstream OCI image, then `begin_create_sandbox(disk_id=..., cpu="2000m", memory="4096Mi", egress_policy=Deny)`).
+1. Create sandbox from a **clean** Dangerzone disk (`create_disk_image` from the upstream OCI image, then `begin_create_sandbox(disk_id=..., cpu="4000m", memory="8192Mi", egress_policy=Deny)`).
 2. `mkdir` + `write_file` the original to `/tmp/bluepaper/input.bin`.
 3. `write_file` the wrapper at `/tmp/bluepaper/run_convert.py` (not a document parser; it only redirects stdio into `dangerzone.conversion.doc_to_pixels`).
 4. `exec("python3 /tmp/bluepaper/run_convert.py")`.
@@ -30,7 +30,7 @@ Exec stdout size limits and `read_file` caps are **unknown until a live run**. R
 
 - Egress **deny-all** at create time (`EgressPolicy(default_action="Deny")`, traffic inspection Full when the SDK allows it).
 - No managed identity on the sandbox. No Blob volume mounts. The worker copies bytes in and pixels out.
-- Default tier **L**: 2 vCPU / 4 GiB (`cpu="2000m"`, `memory="4096Mi"`).
+- Default tier **XL**: 4 vCPU / 8 GiB (`cpu="4000m"`, `memory="8192Mi"`). That is the largest sandbox tier.
 - Do not nest gVisor/`runsc`.
 - Idle suspend/resume is only for a **clean** golden image, never for a sandbox that processed an upload.
 
