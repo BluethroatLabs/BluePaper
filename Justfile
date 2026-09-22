@@ -174,42 +174,12 @@ disk:
     aca auth login
     aca doctor
     disk_name="dangerzone-doc-to-pixels"
-    parse_disk_id() {
-      python3 -c '
-import json, sys
-want, mode = sys.argv[1], sys.argv[2]
-raw = sys.stdin.read().strip()
-if not raw:
-    sys.exit(0)
-data = json.loads(raw)
-if isinstance(data, list):
-    items = data
-elif isinstance(data, dict) and isinstance(data.get("value"), list):
-    items = data["value"]
-elif isinstance(data, dict) and data.get("id"):
-    items = [data]
-else:
-    items = []
-
-def item_name(item):
-    labels = item.get("labels") or {}
-    return item.get("name") or labels.get("name") or ""
-
-if mode == "create" and len(items) == 1 and items[0].get("id"):
-    print(items[0]["id"])
-    sys.exit(0)
-for item in items:
-    if item_name(item) == want and item.get("id"):
-        print(item["id"])
-        break
-' "$disk_name" "$1"
-    }
-    disk_id="$(aca sandboxgroup disk list -o json | parse_disk_id list || true)"
+    disk_id="$(aca sandboxgroup disk list -o json | python3 dev_scripts/parse_disk_id.py "$disk_name" list || true)"
     if [[ -z "$disk_id" ]]; then
       disk_id="$(aca sandboxgroup disk create \
         --image "{{ dangerzone_image }}" \
         --name "$disk_name" \
-        -o json | parse_disk_id create)"
+        -o json | python3 dev_scripts/parse_disk_id.py "$disk_name" create)"
     fi
     if [[ -z "$disk_id" ]]; then
       echo "Dangerzone disk id was not returned." >&2
