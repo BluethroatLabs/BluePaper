@@ -69,7 +69,11 @@
     jobStage: document.getElementById("job-stage"),
     jobSha: document.getElementById("job-sha"),
     jobCreated: document.getElementById("job-created"),
+    jobFile: document.getElementById("job-file"),
     jobError: document.getElementById("job-error"),
+    preview: document.getElementById("preview"),
+    previewStatus: document.getElementById("preview-status"),
+    pdfPages: document.getElementById("pdf-pages"),
     downloadBtn: document.getElementById("download-btn"),
     deleteBtn: document.getElementById("delete-btn"),
     report: document.getElementById("report"),
@@ -85,6 +89,11 @@
     pollTimer: null,
     turnstileId: null,
     turnstileToken: "",
+    previewToken: 0,
+    pdfjs: null,
+    pdfBlob: null,
+    pdfPromise: null,
+    downloadName: "document-safe.pdf",
   };
 
   sessionStorage.removeItem("bluepaper.apiKey");
@@ -148,6 +157,36 @@
     setReady();
   }
 
+  function safePdfName(filename) {
+    const raw = String(filename || "")
+      .replaceAll("\\", "/")
+      .split("/")
+      .pop()
+      .trim();
+    const stem = raw.replace(/\.[^./]+$/, "").replace(/^\.+|\.+$/g, "").trim();
+    const cleaned = stem
+      .replace(/[\u0000-\u001f"\\/:*?<>|]+/g, "_")
+      .replace(/^[\s._]+|[\s._]+$/g, "");
+    const base = (cleaned || "document").slice(0, 180);
+    return `${base}-safe.pdf`;
+  }
+
+  function filenameFromDisposition(header) {
+    if (!header) {
+      return "";
+    }
+    const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
+    if (star) {
+      try {
+        return decodeURIComponent(star[1].trim());
+      } catch {
+        /* use the quoted fallback */
+      }
+    }
+    const plain = /filename="([^"]*)"/.exec(header);
+    return plain ? plain[1] : "";
+  }
+
   function formatBytes(n) {
     if (n < 1024) {
       return `${n} B`;
@@ -182,6 +221,7 @@
     els.jobSha.textContent = job.sha256;
     els.jobSha.title = job.sha256;
     els.jobCreated.textContent = job.created_at || "—";
+    els.jobFile.textContent = state.downloadName;
     if (job.error) {
       els.jobError.hidden = false;
       els.jobError.textContent = job.error;
@@ -242,6 +282,9 @@
     const terminal = ["succeeded", "failed", "cancelled"].includes(job.status);
     if (terminal) {
       stopPoll();
+      if (job.status === "succeeded") {
+        fetchPdf().catch((err) => showSubmitError(err.message || "Preview failed"));
+      }
       const reportRes = await api(`/v1/conversions/${state.conversionId}/report`);
       if (reportRes.ok) {
         renderReport(await reportRes.json());
@@ -283,6 +326,8 @@
     }
     const accepted = await response.json();
     state.conversionId = accepted.id;
+    state.downloadName = safePdfName(state.file && state.file.name);
+    clearPreview();
     els.report.hidden = true;
     els.hitsTable.hidden = true;
     renderJob(accepted);
@@ -328,20 +373,128 @@
     });
   };
 
+  function clearPreview() {
+    state.previewToken += 1;
+    state.pdfPromise = null;
+    state.pdfBlob = null;
+    els.preview.hidden = true;
+    els.previewStatus.hidden = true;
+    els.pdfPages.hidden = true;
+    els.pdfPages.replaceChildren();
+  }
+
+  async function renderPdfPages(blob) {
+    if (!state.pdfjs) {
+      state.pdfjs = await import("/ui/vendor/pdf.min.mjs");
+      state.pdfjs.GlobalWorkerOptions.workerSrc = "/ui/vendor/pdf.worker.min.mjs";
+    }
+    const data = new Uint8Array(await blob.arrayBuffer());
+    const pdf = await state.pdfjs.getDocument({ data }).promise;
+    const fragment = document.createDocumentFragment();
+    const displayWidth = Math.max((els.preview.clientWidth || 640) - 48, 320);
+    const pixelRatio = window.devicePixelRatio || 1;
+    for (let i = 1; i <= pdf.numPages; i += 1) {
+      const page = await pdf.getPage(i);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({
+        scale: Math.min(4, (displayWidth * pixelRatio) / base.width),
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      canvas.setAttribute("role", "img");
+      canvas.setAttribute("aria-label", `Page ${i} of ${pdf.numPages}`);
+      const context = canvas.getContext("2d");
+      await page.render({ canvasContext: context, viewport }).promise;
+      fragment.appendChild(canvas);
+    }
+    return fragment;
+  }
+
+  async function loadPreview() {
+    if (!state.conversionId) {
+      return null;
+    }
+    const token = ++state.previewToken;
+    state.pdfBlob = null;
+    els.preview.hidden = false;
+    els.previewStatus.hidden = false;
+    els.previewStatus.textContent = "Loading preview…";
+    els.pdfPages.hidden = true;
+    els.pdfPages.replaceChildren();
+    const response = await api(`/v1/conversions/${state.conversionId}/pdf`);
+    if (token !== state.previewToken) {
+      return null;
+    }
+    if (!response.ok) {
+      els.previewStatus.textContent = "Preview unavailable.";
+      showSubmitError(await readError(response));
+      return null;
+    }
+    const blob = await response.blob();
+    if (token !== state.previewToken) {
+      return null;
+    }
+    const typed =
+      blob.type === "application/pdf"
+        ? blob
+        : new Blob([blob], { type: "application/pdf" });
+    const named =
+      filenameFromDisposition(response.headers.get("Content-Disposition")) ||
+      state.downloadName;
+    state.downloadName = named;
+    els.jobFile.textContent = named;
+    state.pdfBlob = typed;
+    let pages;
+    try {
+      pages = await renderPdfPages(typed);
+    } catch {
+      if (token === state.previewToken) {
+        els.previewStatus.textContent = "Preview unavailable.";
+      }
+      return token === state.previewToken ? typed : null;
+    }
+    if (token !== state.previewToken) {
+      return null;
+    }
+    els.pdfPages.replaceChildren(pages);
+    els.previewStatus.hidden = true;
+    els.pdfPages.hidden = false;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    els.preview.scrollIntoView({
+      behavior: reduce ? "auto" : "smooth",
+      block: "start",
+    });
+    return typed;
+  }
+
+  function fetchPdf() {
+    if (state.pdfBlob) {
+      return Promise.resolve(state.pdfBlob);
+    }
+    if (!state.pdfPromise) {
+      const pending = loadPreview().finally(() => {
+        if (state.pdfPromise === pending) {
+          state.pdfPromise = null;
+        }
+      });
+      state.pdfPromise = pending;
+    }
+    return state.pdfPromise;
+  }
+
   async function downloadPdf() {
     if (!state.conversionId) {
       return;
     }
-    const response = await api(`/v1/conversions/${state.conversionId}/pdf`);
-    if (!response.ok) {
-      showSubmitError(await readError(response));
+    const blob = await fetchPdf();
+    if (!blob) {
       return;
     }
-    const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "safe.pdf";
+    link.download = state.downloadName || safePdfName(state.file && state.file.name);
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -361,6 +514,7 @@
     }
     stopPoll();
     state.conversionId = null;
+    clearPreview();
     els.job.hidden = true;
     els.jobEmpty.hidden = false;
     els.report.hidden = true;

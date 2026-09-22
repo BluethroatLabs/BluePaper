@@ -51,6 +51,25 @@ def test_dummy_convert_success_without_hits(client, stores, settings) -> None:
     pdf = client.get(f"/v1/conversions/{conversion_id}/pdf", headers=auth())
     assert pdf.status_code == 200
     assert pdf.content.startswith(b"%PDF")
+    assert pdf.headers["content-type"].startswith("application/pdf")
+    disposition = pdf.headers["content-disposition"]
+    assert 'filename="doc-safe.pdf"' in disposition
+    assert "filename*=UTF-8''doc-safe.pdf" in disposition
+
+
+def test_pdf_download_name_keeps_original_stem(client, stores, settings) -> None:
+    conversion_id = _submit(
+        client,
+        b"%PDF-1.4\nplain text document\n",
+        "Quarterly Report.docx",
+    )
+    assert process_one(settings, stores) is True
+    pdf = client.get(f"/v1/conversions/{conversion_id}/pdf", headers=auth())
+    assert pdf.status_code == 200
+    disposition = pdf.headers["content-disposition"]
+    assert disposition.startswith("inline;")
+    assert 'filename="Quarterly Report-safe.pdf"' in disposition
+    assert "filename*=UTF-8''Quarterly%20Report-safe.pdf" in disposition
 
 
 def test_dummy_convert_justified_when_javascript_present(

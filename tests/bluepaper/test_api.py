@@ -308,6 +308,8 @@ def test_frontend_is_public(client) -> None:
     assert b"BluePaper" in response.content
     assert b"Safety comes from" in response.content
     assert b"turnstile-widget" in response.content
+    assert b'id="pdf-pages"' in response.content
+    assert b'id="job-file"' in response.content
     assert b"challenges.cloudflare.com/turnstile" in response.content
     assert b"api-key" not in response.content
     assert b"API key" not in response.content
@@ -323,11 +325,25 @@ def test_frontend_assets_are_public(client) -> None:
     assert icon.status_code == 200
     assert b"--background" in css.content
     assert b"/v1/conversions" in js.content
+    assert b"-safe.pdf" in js.content
+    assert b'link.download = "safe.pdf"' not in js.content
+    assert b"pdf-pages" in js.content
+    assert b"/ui/vendor/pdf.min.mjs" in js.content
     assert b"cf-turnstile-response" in js.content
     assert b"0x4AAAAAAE_xSgJ6g787dvMB" in js.content
     assert b"1x00000000000000000000AA" in js.content
     assert b"Authorization" not in js.content
     assert b"api-key" not in js.content
+
+
+def test_pdfjs_preview_assets_are_public(client) -> None:
+    library = client.get("/ui/vendor/pdf.min.mjs")
+    worker = client.get("/ui/vendor/pdf.worker.min.mjs")
+    assert library.status_code == 200
+    assert "javascript" in library.headers["content-type"]
+    assert b"pdfjs" in library.content.lower() or b"Mozilla" in library.content
+    assert worker.status_code == 200
+    assert "javascript" in worker.headers["content-type"]
 
 
 def test_frontend_is_not_in_openapi(client) -> None:

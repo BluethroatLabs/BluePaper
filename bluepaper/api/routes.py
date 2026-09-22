@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -29,6 +30,7 @@ from bluepaper.config import (
     original_blob_key,
     pdf_blob_key,
     report_blob_key,
+    safe_pdf_name,
 )
 from bluepaper.ids import new_conversion_id
 from bluepaper.models import (
@@ -303,6 +305,10 @@ def get_report(
     "/conversions/{conversion_id}/pdf",
     tags=["conversions"],
     summary="Download sanitized PDF",
+    description=(
+        "PDF rebuilt from pixels. Content-Disposition names the file "
+        "`{original stem}-safe.pdf`."
+    ),
     response_class=Response,
     responses={
         200: {
@@ -337,7 +343,12 @@ def get_pdf(
             status_code=status.HTTP_409_CONFLICT,
             detail="pdf not available",
         )
-    return Response(content=payload, media_type="application/pdf")
+    name = safe_pdf_name(record.filename)
+    return Response(
+        content=payload,
+        media_type="application/pdf",
+        headers={"Content-Disposition": _pdf_content_disposition(name)},
+    )
 
 
 @router.delete(
@@ -364,6 +375,16 @@ def delete_conversion(
     stores.blobs.delete(report_blob_key(conversion_id))
     stores.table.delete(conversion_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _pdf_content_disposition(filename: str) -> str:
+    ascii_name = "".join(
+        ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "_" for ch in filename
+    )
+    if not ascii_name.endswith(".pdf"):
+        ascii_name = "document-safe.pdf"
+    encoded = quote(filename, safe="")
+    return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
 
 
 def _status_response(record: ConversionRecord) -> StatusResponse:

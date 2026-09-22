@@ -84,17 +84,22 @@ class AcaIsolationProvider(IsolationProvider):
 
     def _doc_to_pixels(self, sandbox: SandboxSession, document: Document) -> None:
         original = Path(document.input_filename).read_bytes()
-        try:
-            sandbox.mkdir("/tmp/bluepaper")
-        except Exception:
-            sandbox.exec("mkdir -p /tmp/bluepaper")
+        # The file API creates root-owned directories. The converter runs as
+        # uid 1000 and has to create pixels.bin here, so the directory must
+        # be created by that same user.
+        sandbox.exec("mkdir -p /tmp/bluepaper")
         sandbox.write_file(_INPUT, original)
         sandbox.write_file(_WRAPPER, CONVERT_WRAPPER)
         result = sandbox.exec(f"{_PYTHON} {_WRAPPER}")
         if result.exit_code not in (0, None):
-            raise RuntimeError(
-                f"doc_to_pixels exited with {result.exit_code}"
-            )
+            detail = _exec_text(result.stderr).strip()
+            if detail:
+                log.error("doc_to_pixels stderr: %s", detail[:2000])
+            tail = detail.splitlines()[-1][:200] if detail else ""
+            message = f"doc_to_pixels exited with {result.exit_code}"
+            if tail:
+                message = f"{message}: {tail}"
+            raise RuntimeError(message)
 
     def _open_pixels(self, sandbox: SandboxSession) -> IO[bytes]:
         info = sandbox.stat_file(_PIXELS)
@@ -149,6 +154,14 @@ def _connect_and_create(settings: Settings) -> SandboxSession:
     }
     sandbox = client.begin_create_sandbox(**create_kwargs).result()
     return sandbox  # type: ignore[no-any-return]
+
+
+def _exec_text(payload: bytes | str | None) -> str:
+    if payload is None:
+        return ""
+    if isinstance(payload, bytes):
+        return payload.decode("utf-8", "replace")
+    return payload
 
 
 def _deny_all_egress(egress_policy_cls: type) -> object:

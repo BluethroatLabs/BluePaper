@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -51,6 +52,23 @@ def original_blob_key(sha256: str) -> str:
 
 def pdf_blob_key(conversion_id: str) -> str:
     return f"conversions/{conversion_id}/safe.pdf"
+
+
+_UNSAFE_DOWNLOAD_CHARS = re.compile(r'[\x00-\x1f"\\/:*?<>|]+')
+
+
+def safe_pdf_name(filename: str | None) -> str:
+    """Caller-facing name: ``{original stem}-safe.pdf``.
+
+    Blob storage keeps using :func:`pdf_blob_key`. This name is only what
+    the download suggests.
+    """
+    raw = (filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    stem = Path(raw).stem.strip().strip(".")
+    cleaned = _UNSAFE_DOWNLOAD_CHARS.sub("_", stem).strip(" ._")
+    if not cleaned:
+        cleaned = "document"
+    return f"{cleaned[:180]}-safe.pdf"
 
 
 def report_blob_key(conversion_id: str) -> str:

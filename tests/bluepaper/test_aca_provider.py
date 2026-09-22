@@ -21,7 +21,6 @@ class FakeSandbox:
         *,
         fail_exec: bool = False,
         huge_pixels: bool = False,
-        fail_mkdir: bool = False,
         fail_delete: bool = False,
         empty_pixels: bool = False,
         str_payload: bool = False,
@@ -33,7 +32,6 @@ class FakeSandbox:
         self.commands: list[str] = []
         self.fail_exec = fail_exec
         self.huge_pixels = huge_pixels
-        self.fail_mkdir = fail_mkdir
         self.fail_delete = fail_delete
         self.empty_pixels = empty_pixels
         self.str_payload = str_payload
@@ -58,8 +56,6 @@ class FakeSandbox:
         return SimpleNamespace(size=len(data))
 
     def mkdir(self, path: str) -> None:
-        if self.fail_mkdir:
-            raise RuntimeError("mkdir not supported")
         self.files.setdefault(path.rstrip("/") + "/.keep", b"")
 
     def exec(self, command: str) -> FakeSandbox:
@@ -135,11 +131,11 @@ def _pdf_doc(tmp_path: Path) -> Document:
     return Document(str(src), str(dst))
 
 
-def test_aca_mkdir_fallback_and_none_exit_code(tmp_path: Path) -> None:
-    sandbox = FakeSandbox(fail_mkdir=True, success_exit_code=None)
+def test_aca_mkdir_runs_as_sandbox_user(tmp_path: Path) -> None:
+    sandbox = FakeSandbox(success_exit_code=None)
     provider = AcaIsolationProvider(lambda: sandbox, max_pixel_bytes=1024 * 1024)
     provider.convert(_pdf_doc(tmp_path), None)
-    assert any("mkdir -p /tmp/bluepaper" in cmd for cmd in sandbox.commands)
+    assert sandbox.commands[0] == "mkdir -p /tmp/bluepaper"
     assert sandbox.deleted is True
 
 
@@ -240,3 +236,6 @@ def test_convert_wrapper_rewires_stdio() -> None:
     assert "dangerzone.conversion.doc_to_pixels" in CONVERT_WRAPPER
     assert "/tmp/bluepaper/input.bin" in CONVERT_WRAPPER
     assert "/tmp/bluepaper/pixels.bin" in CONVERT_WRAPPER
+    assert "os.dup2" in CONVERT_WRAPPER
+    assert "sys.stdout = open" not in CONVERT_WRAPPER
+    assert "/home/dangerzone/dangerzone-image/rootfs/opt/dangerzone" in CONVERT_WRAPPER

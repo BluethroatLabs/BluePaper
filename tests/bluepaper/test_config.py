@@ -5,6 +5,7 @@ from bluepaper.config import (
     original_blob_key,
     pdf_blob_key,
     report_blob_key,
+    safe_pdf_name,
 )
 from bluepaper.models import ConversionRecord, ConversionStatus, utc_now
 from bluepaper.ocr import is_supported_ocr_lang, ocr_language_codes
@@ -16,6 +17,18 @@ def test_extension_of_normalizes_suffix() -> None:
     assert extension_of(None) == ""
     assert extension_of("") == ""
     assert extension_of("no-suffix") == ""
+
+
+def test_safe_pdf_name_uses_original_stem() -> None:
+    assert safe_pdf_name("doc.pdf") == "doc-safe.pdf"
+    assert safe_pdf_name("Quarterly Report.docx") == "Quarterly Report-safe.pdf"
+    assert safe_pdf_name("archive.tar.gz") == "archive.tar-safe.pdf"
+    assert safe_pdf_name(r"..\secret\passwd.pdf") == "passwd-safe.pdf"
+    assert safe_pdf_name("café.pdf") == "café-safe.pdf"
+    assert safe_pdf_name("weird:name?.pdf") == "weird_name-safe.pdf"
+    assert safe_pdf_name(None) == "document-safe.pdf"
+    assert safe_pdf_name("...") == "document-safe.pdf"
+    assert safe_pdf_name(f"{'a' * 300}.pdf") == f"{'a' * 180}-safe.pdf"
 
 
 def test_blob_keys() -> None:

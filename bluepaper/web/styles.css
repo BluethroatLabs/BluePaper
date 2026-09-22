@@ -487,6 +487,35 @@ select {
   width: auto;
 }
 
+#job-file {
+  word-break: break-word;
+}
+
+.preview {
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-status {
+  margin: 0;
+  padding: 1.5rem;
+}
+
+#pdf-pages {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+  max-height: min(70vh, 48rem);
+  padding: 1.5rem;
+  overflow: auto;
+  background: #1a1a1a;
+}
+
+#pdf-pages canvas {
+  width: 100%;
+  height: auto;
+  background: white;
+}
+
 .report-banner {
   margin-bottom: 1rem;
   padding: 0.75rem 0.9rem;
