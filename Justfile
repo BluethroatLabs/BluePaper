@@ -63,6 +63,7 @@ infra:
     #!/usr/bin/env bash
     set -euo pipefail
     : "${BLUEPAPER_API_KEY:?Set BLUEPAPER_API_KEY in the environment or .env}"
+    : "${TURNSTILE_SECRET:?Set TURNSTILE_SECRET in the environment or .env}"
     az account set --subscription "{{ subscription }}"
     acr="$(just acr='{{ acr }}' _acr)"
     az deployment group create \
@@ -72,6 +73,7 @@ infra:
       --parameters infra/parameters.json \
       --parameters \
         apiKey="$BLUEPAPER_API_KEY" \
+        turnstileSecret="$TURNSTILE_SECRET" \
         apiImage="$acr/{{ api_name }}:{{ tag }}" \
         workerImage="$acr/{{ worker_name }}:{{ tag }}"
 

@@ -8,6 +8,10 @@ param prefix string = 'bluepaper'
 @description('Bearer API key for the BluePaper HTTP API')
 param apiKey string
 
+@secure()
+@description('Cloudflare Turnstile secret for siteverify')
+param turnstileSecret string
+
 @description('API container image')
 param apiImage string
 
@@ -27,6 +31,7 @@ var workerName = '${prefix}-worker'
 var sandboxGroupName = '${prefix}-sandboxes'
 var workspaceName = '${prefix}-logs'
 var acrServer = split(apiImage, '/')[0]
+var turnstileHostname = '${apiName}.${environment.properties.defaultDomain}'
 
 var blobContributor = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
@@ -119,6 +124,7 @@ resource apiApp 'Microsoft.App/containerApps@2025-07-01' = {
       }
       secrets: [
         { name: 'api-key', value: apiKey }
+        { name: 'turnstile-secret', value: turnstileSecret }
       ]
       registries: [
         {
@@ -135,8 +141,11 @@ resource apiApp 'Microsoft.App/containerApps@2025-07-01' = {
           env: [
             { name: 'BLUEPAPER_API_KEY', secretRef: 'api-key' }
             { name: 'BLUEPAPER_STORAGE_BACKEND', value: 'azure' }
+            { name: 'BLUEPAPER_ISOLATION', value: 'aca' }
             { name: 'BLUEPAPER_AZURE_STORAGE_ACCOUNT', value: storageAccount.name }
             { name: 'PORT', value: '8080' }
+            { name: 'TURNSTILE_SECRET', secretRef: 'turnstile-secret' }
+            { name: 'TURNSTILE_HOSTNAMES', value: turnstileHostname }
           ]
           probes: [
             {

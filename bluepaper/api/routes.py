@@ -3,10 +3,20 @@ from __future__ import annotations
 import hashlib
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response
 
 from bluepaper.api.auth import get_settings, require_api_key
+from bluepaper.api.turnstile import client_ip, verify_turnstile
 from bluepaper.config import (
     SUPPORTED_EXTENSIONS,
     Settings,
@@ -84,6 +94,10 @@ def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceRespon
             "model": ErrorResponse,
             "description": "Concurrency limit",
         },
+        status.HTTP_403_FORBIDDEN: {
+            "model": ErrorResponse,
+            "description": "Turnstile verification failed",
+        },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "model": ErrorResponse,
             "description": "Queue saturated",
@@ -91,11 +105,16 @@ def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceRespon
     },
 )
 async def create_conversion(
+    request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     stores: Annotated[Stores, Depends(get_stores)],
     file: Annotated[UploadFile, File()],
     ocr_lang: Annotated[str | None, Form()] = None,
+    cf_turnstile_response: Annotated[
+        str | None, Form(alias="cf-turnstile-response")
+    ] = None,
 ) -> AcceptedResponse:
+    verify_turnstile(cf_turnstile_response, client_ip(request), settings)
     filename = file.filename or "upload.bin"
     ext = extension_of(filename)
     if ext not in SUPPORTED_EXTENSIONS:

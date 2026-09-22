@@ -106,6 +106,7 @@
                 <option value="">Skip OCR</option>
               </select>
             </div>
+            <div id="turnstile-widget" class="turnstile"></div>
             <button type="submit" class="primary" id="convert-btn" disabled>
               Queue conversion
             </button>
@@ -205,5 +206,9 @@
       </p>
     </noscript>
     <script src="/ui/app.js" defer></script>
+    <script
+      src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=bluepaperTurnstile&render=explicit"
+      defer
+    ></script>
   </body>
 </html>

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 CATALOG_VERSION = "1.0.0"
@@ -66,6 +66,7 @@ def extension_of(filename: str | None) -> str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BLUEPAPER_",
+        env_file=".env",
         extra="ignore",
     )
 
@@ -95,3 +96,13 @@ class Settings(BaseSettings):
     sandbox_disk_id: str | None = None
     source_url: str = "https://github.com/BluethroatLabs/BluePaper"
     source_commit: str | None = None
+    turnstile_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("TURNSTILE_SECRET", "BLUEPAPER_TURNSTILE_SECRET"),
+    )
+    turnstile_hostnames: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "TURNSTILE_HOSTNAMES", "BLUEPAPER_TURNSTILE_HOSTNAMES"
+        ),
+    )

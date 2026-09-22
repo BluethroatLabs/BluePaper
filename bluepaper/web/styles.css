@@ -331,6 +331,11 @@ button:disabled {
   min-height: 19rem;
 }
 
+.turnstile {
+  min-height: 65px;
+  margin: 1rem 0 0.75rem;
+}
+
 .drop {
   position: relative;
   display: grid;

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "4418426359948470143"
+      "templateHash": "15756837854646374721"
     }
   },
   "parameters": {
@@ -27,6 +27,12 @@
       "type": "securestring",
       "metadata": {
         "description": "Bearer API key for the BluePaper HTTP API"
+      }
+    },
+    "turnstileSecret": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Cloudflare Turnstile secret for siteverify"
       }
     },
     "apiImage": {
@@ -181,6 +187,10 @@
             {
               "name": "api-key",
               "value": "[parameters('apiKey')]"
+            },
+            {
+              "name": "turnstile-secret",
+              "value": "[parameters('turnstileSecret')]"
             }
           ],
           "registries": [
@@ -205,12 +215,24 @@
                   "value": "azure"
                 },
                 {
+                  "name": "BLUEPAPER_ISOLATION",
+                  "value": "aca"
+                },
+                {
                   "name": "BLUEPAPER_AZURE_STORAGE_ACCOUNT",
                   "value": "[variables('storageName')]"
                 },
                 {
                   "name": "PORT",
                   "value": "8080"
+                },
+                {
+                  "name": "TURNSTILE_SECRET",
+                  "secretRef": "turnstile-secret"
+                },
+                {
+                  "name": "TURNSTILE_HOSTNAMES",
+                  "value": "[format('{0}.{1}', variables('apiName'), reference(resourceId('Microsoft.App/managedEnvironments', variables('envName')), '2024-03-01').defaultDomain)]"
                 }
               ],
               "probes": [

@@ -23,6 +23,8 @@ def settings() -> Settings:
         max_upload_bytes=1024 * 1024,
         max_concurrent_jobs=2,
         max_queue_depth=3,
+        turnstile_secret=None,
+        turnstile_hostnames="",
     )
 
 

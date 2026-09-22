@@ -306,6 +306,8 @@ def test_frontend_is_public(client) -> None:
     assert "text/html" in response.headers["content-type"]
     assert b"BluePaper" in response.content
     assert b"Safety comes from" in response.content
+    assert b"turnstile-widget" in response.content
+    assert b"challenges.cloudflare.com/turnstile" in response.content
 
 
 def test_frontend_assets_are_public(client) -> None:
@@ -318,12 +320,85 @@ def test_frontend_assets_are_public(client) -> None:
     assert icon.status_code == 200
     assert b"--background" in css.content
     assert b"/v1/conversions" in js.content
+    assert b"cf-turnstile-response" in js.content
+    assert b"0x4AAAAAAE_xSgJ6g787dvMB" in js.content
 
 
 def test_frontend_is_not_in_openapi(client) -> None:
     spec = client.get("/openapi.json").json()
     assert "/" not in spec["paths"]
     assert "/ui" not in spec["paths"]
+
+
+def test_turnstile_rejects_missing_token(settings, stores) -> None:
+    from fastapi.testclient import TestClient
+
+    from bluepaper.api.app import create_app
+
+    settings.turnstile_secret = "test-secret"
+    settings.turnstile_hostnames = "localhost"
+    gated = TestClient(create_app(settings, stores))
+    response = gated.post(
+        "/v1/conversions",
+        headers=auth(),
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert response.status_code == 403
+
+
+def test_turnstile_accepts_verified_token(settings, stores, monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from bluepaper.api import turnstile
+    from bluepaper.api.app import create_app
+
+    def fake_siteverify(secret: str, token: str, remote_ip: str | None) -> dict:
+        assert secret == "test-secret"
+        assert token == "fresh-token"
+        return {
+            "success": True,
+            "action": "queue-conversion",
+            "hostname": "localhost",
+        }
+
+    monkeypatch.setattr(turnstile, "_siteverify", fake_siteverify)
+    settings.turnstile_secret = "test-secret"
+    settings.turnstile_hostnames = "localhost"
+    gated = TestClient(create_app(settings, stores))
+    response = gated.post(
+        "/v1/conversions",
+        headers=auth(),
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+        data={"cf-turnstile-response": "fresh-token"},
+    )
+    assert response.status_code == 202
+
+
+def test_turnstile_rejects_wrong_hostname(settings, stores, monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from bluepaper.api import turnstile
+    from bluepaper.api.app import create_app
+
+    monkeypatch.setattr(
+        turnstile,
+        "_siteverify",
+        lambda secret, token, remote_ip: {
+            "success": True,
+            "action": "queue-conversion",
+            "hostname": "evil.example",
+        },
+    )
+    settings.turnstile_secret = "test-secret"
+    settings.turnstile_hostnames = "localhost"
+    gated = TestClient(create_app(settings, stores))
+    response = gated.post(
+        "/v1/conversions",
+        headers=auth(),
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+        data={"cf-turnstile-response": "fresh-token"},
+    )
+    assert response.status_code == 403
 
 
 def test_report_and_pdf_unknown_are_404(client) -> None:

@@ -86,6 +86,8 @@
     file: null,
     conversionId: null,
     pollTimer: null,
+    turnstileId: null,
+    turnstileToken: "",
   };
 
   function toast(message) {
@@ -119,7 +121,7 @@
   }
 
   function setConnected(connected) {
-    els.convertBtn.disabled = !connected || !state.file;
+    els.convertBtn.disabled = !connected || !state.file || !state.turnstileToken;
     els.keySubmit.textContent = connected ? "Disconnect" : "Connect";
     els.keyInput.disabled = connected;
     if (connected) {
@@ -301,16 +303,25 @@
       showSubmitError("Choose a document.");
       return;
     }
+    if (!state.turnstileToken) {
+      showSubmitError("Complete the bot check.");
+      return;
+    }
     const data = new FormData();
     data.append("file", state.file, state.file.name);
+    data.append("cf-turnstile-response", state.turnstileToken);
     if (els.ocr.value) {
       data.append("ocr_lang", els.ocr.value);
     }
     els.convertBtn.disabled = true;
-    const response = await api("/v1/conversions", { method: "POST", body: data });
+    let response;
+    try {
+      response = await api("/v1/conversions", { method: "POST", body: data });
+    } finally {
+      resetTurnstile();
+    }
     if (!response.ok) {
       showSubmitError(await readError(response));
-      setConnected(true);
       return;
     }
     const accepted = await response.json();
@@ -320,8 +331,40 @@
     renderJob(accepted);
     stopPoll();
     await refreshJob();
-    setConnected(true);
   }
+
+  function resetTurnstile() {
+    state.turnstileToken = "";
+    if (state.turnstileId !== null && window.turnstile) {
+      window.turnstile.reset(state.turnstileId);
+    }
+    setConnected(Boolean(state.key));
+  }
+
+  window.bluepaperTurnstile = function () {
+    const widget = document.getElementById("turnstile-widget");
+    if (!widget || !window.turnstile || state.turnstileId !== null) {
+      return;
+    }
+    state.turnstileId = window.turnstile.render(widget, {
+      sitekey: "0x4AAAAAAE_xSgJ6g787dvMB",
+      action: "queue-conversion",
+      theme: "dark",
+      callback(token) {
+        state.turnstileToken = token;
+        setConnected(Boolean(state.key));
+      },
+      "expired-callback"() {
+        state.turnstileToken = "";
+        setConnected(Boolean(state.key));
+      },
+      "error-callback"() {
+        state.turnstileToken = "";
+        setConnected(Boolean(state.key));
+        showSubmitError("Bot check failed. Retry the widget.");
+      },
+    });
+  };
 
   async function downloadPdf() {
     if (!state.conversionId) {
