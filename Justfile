@@ -18,8 +18,11 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 subscription := "1e238434-310b-4bcd-ab1f-a9381d170243"
 rg := "rg-bluepaper-wehi-sandbox"
+edge_rg := "rg-blueskills-wehi-aci-sandbox"
 api_name := "bluepaper-api"
 worker_name := "bluepaper-worker"
+front_door := "bluepaper-fd"
+front_door_endpoint := "bluepaper-wehi"
 sandbox_group := "bluepaper-sandboxes"
 dangerzone_image := "ghcr.io/freedomofpress/dangerzone/v1:latest"
 tag := env("TAG", "latest")
@@ -66,6 +69,19 @@ infra:
     : "${TURNSTILE_SECRET:?Set TURNSTILE_SECRET in the environment or .env}"
     az account set --subscription "{{ subscription }}"
     acr="$(just acr='{{ acr }}' _acr)"
+    turnstile_host="$(az afd endpoint show \
+      --subscription "{{ subscription }}" \
+      --resource-group "{{ edge_rg }}" \
+      --profile-name "{{ front_door }}" \
+      --endpoint-name "{{ front_door_endpoint }}" \
+      --query hostName -o tsv 2>/dev/null || true)"
+    if [[ -z "$turnstile_host" ]]; then
+      turnstile_host="$(az containerapp show \
+        --subscription "{{ subscription }}" \
+        --resource-group "{{ rg }}" \
+        --name "{{ api_name }}" \
+        --query properties.configuration.ingress.fqdn -o tsv)"
+    fi
     az deployment group create \
       --subscription "{{ subscription }}" \
       --resource-group "{{ rg }}" \
@@ -74,6 +90,7 @@ infra:
       --parameters \
         apiKey="$BLUEPAPER_API_KEY" \
         turnstileSecret="$TURNSTILE_SECRET" \
+        turnstileHostnames="$turnstile_host" \
         apiImage="$acr/{{ api_name }}:{{ tag }}" \
         workerImage="$acr/{{ worker_name }}:{{ tag }}"
 
@@ -148,16 +165,40 @@ disk:
     echo "Copy the disk id from the command above, then:"
     echo "  az containerapp update -g {{ rg }} -n {{ worker_name }} --set-env-vars BLUEPAPER_SANDBOX_DISK_ID=<disk-id>"
 
-# Build, push, deploy infra, ensure sandbox group, grant worker roles.
-deploy: use build infra sandbox-group worker-role
+# Front Door in the BlueSkills sandbox. The BluePaper group denies Microsoft.Cdn,
+# and this account cannot create resource groups or edit that policy.
+front-door:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    az account set --subscription "{{ subscription }}"
+    origin="$(az containerapp show -g "{{ rg }}" -n "{{ api_name }}" --query properties.configuration.ingress.fqdn -o tsv)"
+    az deployment group create \
+      --subscription "{{ subscription }}" \
+      --resource-group "{{ edge_rg }}" \
+      --template-file infra/frontdoor.bicep \
+      --parameters originHostName="$origin"
+    host="$(az afd endpoint show \
+      -g "{{ edge_rg }}" \
+      --profile-name "{{ front_door }}" \
+      --endpoint-name "{{ front_door_endpoint }}" \
+      --query hostName -o tsv)"
+    az containerapp update \
+      -g "{{ rg }}" \
+      -n "{{ api_name }}" \
+      --set-env-vars "TURNSTILE_HOSTNAMES=$host" \
+      -o none
+    echo "Front Door: https://$host"
+
+# Build, push, deploy infra, ensure sandbox group, grant worker roles, put Front Door in front.
+deploy: use build infra sandbox-group worker-role front-door
     @echo
-    @echo "API: https://$(az containerapp show -g "{{ rg }}" -n "{{ api_name }}" --query properties.configuration.ingress.fqdn -o tsv)"
+    @echo "API: https://$(az afd endpoint show -g "{{ edge_rg }}" --profile-name "{{ front_door }}" --endpoint-name "{{ front_door_endpoint }}" --query hostName -o tsv)"
     @echo "Next: just disk   # bake conversion image, then just smoke"
 
 # GET /healthz and /openapi.json on the deployed API.
 smoke:
     az account set --subscription "{{ subscription }}"
-    fqdn="$(az containerapp show -g "{{ rg }}" -n "{{ api_name }}" --query properties.configuration.ingress.fqdn -o tsv)"; \
+    fqdn="$(az afd endpoint show -g "{{ edge_rg }}" --profile-name "{{ front_door }}" --endpoint-name "{{ front_door_endpoint }}" --query hostName -o tsv)"; \
     curl -fsS "https://$fqdn/healthz"; echo; \
     curl -fsS "https://$fqdn/openapi.json" | python -c 'import json,sys; spec=json.load(sys.stdin); print(spec["info"]["title"], "openapi", spec["openapi"], "paths", len(spec["paths"]))'
 

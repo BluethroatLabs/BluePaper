@@ -32,8 +32,10 @@ def test_openapi_is_public_and_documents_bearer_auth(client) -> None:
         for scheme in schemes.values()
     )
     post = paths["/v1/conversions"]["post"]
-    assert post.get("security") or body.get("security")
+    assert {} in post["security"]
+    assert any(item for item in post["security"])
     assert "security" not in paths["/healthz"]["get"]
+    assert "security" not in paths["/v1/source"]["get"]
 
 
 def test_missing_key_is_401(client) -> None:
@@ -128,9 +130,8 @@ def test_concurrency_limit_is_429(client, stores) -> None:
     assert response.status_code == 429
 
 
-def test_source_requires_auth(client) -> None:
-    assert client.get("/v1/source").status_code == 401
-    response = client.get("/v1/source", headers=auth())
+def test_source_is_public(client) -> None:
+    response = client.get("/v1/source")
     assert response.status_code == 200
     assert response.json()["license"] == "AGPL-3.0"
 
@@ -308,6 +309,8 @@ def test_frontend_is_public(client) -> None:
     assert b"Safety comes from" in response.content
     assert b"turnstile-widget" in response.content
     assert b"challenges.cloudflare.com/turnstile" in response.content
+    assert b"api-key" not in response.content
+    assert b"API key" not in response.content
 
 
 def test_frontend_assets_are_public(client) -> None:
@@ -322,6 +325,9 @@ def test_frontend_assets_are_public(client) -> None:
     assert b"/v1/conversions" in js.content
     assert b"cf-turnstile-response" in js.content
     assert b"0x4AAAAAAE_xSgJ6g787dvMB" in js.content
+    assert b"1x00000000000000000000AA" in js.content
+    assert b"Authorization" not in js.content
+    assert b"api-key" not in js.content
 
 
 def test_frontend_is_not_in_openapi(client) -> None:
@@ -340,10 +346,30 @@ def test_turnstile_rejects_missing_token(settings, stores) -> None:
     gated = TestClient(create_app(settings, stores))
     response = gated.post(
         "/v1/conversions",
-        headers=auth(),
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
     )
     assert response.status_code == 403
+
+
+def test_api_key_skips_turnstile(settings, stores) -> None:
+    from fastapi.testclient import TestClient
+
+    from bluepaper.api.app import create_app
+
+    settings.turnstile_secret = "test-secret"
+    settings.turnstile_hostnames = "localhost"
+    gated = TestClient(create_app(settings, stores))
+    response = gated.post(
+        "/v1/conversions",
+        headers=auth(),
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert response.status_code == 202
+    created = response.json()
+    hidden = gated.get(f"/v1/conversions/{created['id']}")
+    assert hidden.status_code == 401
+    visible = gated.get(f"/v1/conversions/{created['id']}", headers=auth())
+    assert visible.status_code == 200
 
 
 def test_turnstile_accepts_verified_token(settings, stores, monkeypatch) -> None:
@@ -367,11 +393,16 @@ def test_turnstile_accepts_verified_token(settings, stores, monkeypatch) -> None
     gated = TestClient(create_app(settings, stores))
     response = gated.post(
         "/v1/conversions",
-        headers=auth(),
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
         data={"cf-turnstile-response": "fresh-token"},
     )
     assert response.status_code == 202
+    created = response.json()
+    status = gated.get(f"/v1/conversions/{created['id']}")
+    assert status.status_code == 200
+    assert status.json()["id"] == created["id"]
+    deleted = gated.delete(f"/v1/conversions/{created['id']}")
+    assert deleted.status_code == 204
 
 
 def test_turnstile_rejects_wrong_hostname(settings, stores, monkeypatch) -> None:
@@ -394,11 +425,62 @@ def test_turnstile_rejects_wrong_hostname(settings, stores, monkeypatch) -> None
     gated = TestClient(create_app(settings, stores))
     response = gated.post(
         "/v1/conversions",
-        headers=auth(),
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
         data={"cf-turnstile-response": "fresh-token"},
     )
     assert response.status_code == 403
+
+
+def test_invalid_key_does_not_fall_through_to_turnstile(
+    settings, stores, monkeypatch
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from bluepaper.api import turnstile
+    from bluepaper.api.app import create_app
+
+    def fail_if_called(secret: str, token: str, remote_ip: str | None) -> dict:
+        raise AssertionError("siteverify should not run when the API key is wrong")
+
+    monkeypatch.setattr(turnstile, "_siteverify", fail_if_called)
+    settings.turnstile_secret = "test-secret"
+    settings.turnstile_hostnames = "localhost"
+    gated = TestClient(create_app(settings, stores))
+    response = gated.post(
+        "/v1/conversions",
+        headers=auth("nope"),
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+        data={"cf-turnstile-response": "fresh-token"},
+    )
+    assert response.status_code == 401
+
+
+def test_turnstile_test_secret_accepts_dummy_payload(
+    settings, stores, monkeypatch
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from bluepaper.api import turnstile
+    from bluepaper.api.app import create_app
+
+    monkeypatch.setattr(
+        turnstile,
+        "_siteverify",
+        lambda secret, token, remote_ip: {
+            "success": True,
+            "action": "test",
+            "hostname": "example.com",
+        },
+    )
+    settings.turnstile_secret = "1x0000000000000000000000000000000AA"
+    settings.turnstile_hostnames = ""
+    gated = TestClient(create_app(settings, stores))
+    response = gated.post(
+        "/v1/conversions",
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+        data={"cf-turnstile-response": "XXXX.DUMMY.TOKEN.XXXX"},
+    )
+    assert response.status_code == 202
 
 
 def test_report_and_pdf_unknown_are_404(client) -> None:

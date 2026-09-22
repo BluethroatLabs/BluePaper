@@ -12,6 +12,9 @@ from bluepaper.config import Settings
 _SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 _EXPECTED_ACTION = "queue-conversion"
 _MAX_TOKEN_LEN = 2048
+# Cloudflare's public always-pass testing secret. siteverify accepts the dummy
+# token and returns a fixed payload, so action and hostname are not meaningful.
+_TEST_PASS_SECRET = "1x0000000000000000000000000000000AA"
 
 
 def client_ip(request: Request) -> str | None:
@@ -68,17 +71,17 @@ def verify_turnstile(
     secret = (settings.turnstile_secret or "").strip()
     if not secret:
         return
-    expected = _hostnames(settings.turnstile_hostnames)
-    if (
-        not isinstance(token, str)
-        or not token
-        or len(token) > _MAX_TOKEN_LEN
-        or not expected
-    ):
+    if not isinstance(token, str) or not token or len(token) > _MAX_TOKEN_LEN:
         raise _forbidden()
     result = _siteverify(secret, token, remote_ip)
+    if secret == _TEST_PASS_SECRET:
+        if result.get("success") is not True:
+            raise _forbidden()
+        return
+    expected = _hostnames(settings.turnstile_hostnames)
     if (
-        result.get("success") is not True
+        not expected
+        or result.get("success") is not True
         or result.get("action") != _EXPECTED_ACTION
         or result.get("hostname") not in expected
     ):

@@ -36,6 +36,9 @@ class ConversionRecord:
     ocr_lang: str | None = None
     scan_completed: bool = False
     filename: str = "upload.bin"
+    # True when the caller queued with Turnstile and no API key. The conversion
+    # id is then the capability for status, report, PDF, and delete.
+    guest: bool = False
 
     def to_entity(self) -> dict[str, Any]:
         return {
@@ -52,6 +55,7 @@ class ConversionRecord:
             "OcrLang": self.ocr_lang or "",
             "ScanCompleted": self.scan_completed,
             "Filename": self.filename,
+            "Guest": self.guest,
         }
 
     @classmethod
@@ -70,6 +74,7 @@ class ConversionRecord:
             ocr_lang=str(entity.get("OcrLang") or "") or None,
             scan_completed=bool(entity.get("ScanCompleted", False)),
             filename=str(entity.get("Filename") or "upload.bin"),
+            guest=bool(entity.get("Guest", False)),
         )
 
 

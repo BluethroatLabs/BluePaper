@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -21,15 +22,45 @@ log = logging.getLogger("bluepaper.api")
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
+
+def _openapi(application: FastAPI) -> dict:
+    if application.openapi_schema:
+        return application.openapi_schema
+    schema = get_openapi(
+        title=application.title,
+        version=application.version,
+        openapi_version=application.openapi_version,
+        description=application.description,
+        routes=application.routes,
+        tags=application.openapi_tags,
+        license_info=application.license_info,
+    )
+    for path, item in schema.get("paths", {}).items():
+        if not path.startswith("/v1/conversions"):
+            continue
+        for operation in item.values():
+            if not isinstance(operation, dict):
+                continue
+            security = operation.get("security")
+            if not security:
+                continue
+            scheme = next(iter(security[0]))
+            operation["security"] = [{scheme: []}, {}]
+    application.openapi_schema = schema
+    return schema
+
 OPENAPI_DESCRIPTION = """
 Upload an untrusted document and receive a PDF rebuilt from pixels, plus a
 regexp report on the original bytes.
 
 Safety comes from destruction, not detection. Zero regexp hits is not "clean."
 
-`/v1` routes require `Authorization: Bearer <api-key>`. `/`, `/ui`,
-`/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.
-The operator UI at `/` sends the bearer key from the browser.
+Integrators send `Authorization: Bearer <api-key>` on conversion routes.
+The console at `/` does not. `POST /v1/conversions` accepts a completed
+Turnstile token instead, and that conversion id then authorizes status,
+report, PDF, and delete. Key-created conversions still require the API key.
+`GET /v1/source`, `/`, `/ui`, `/healthz`, `/openapi.json`, `/docs`, and
+`/redoc` are unauthenticated.
 """.strip()
 
 
@@ -59,6 +90,7 @@ def create_app(
         ],
         swagger_ui_parameters={"persistAuthorization": True},
     )
+    application.openapi = lambda: _openapi(application)  # type: ignore[method-assign]
     application.state.settings = settings
     application.state.stores = stores
     application.include_router(router)

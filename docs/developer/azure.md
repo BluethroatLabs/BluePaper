@@ -47,7 +47,7 @@ Bake the Dangerzone disk and set `BLUEPAPER_SANDBOX_DISK_ID` on the worker. Conf
 
 | Variable | Purpose |
 | --- | --- |
-| `BLUEPAPER_API_KEY` | Bearer token |
+| `BLUEPAPER_API_KEY` | Integrator bearer token. The console uses Turnstile instead. |
 | `BLUEPAPER_MAX_UPLOAD_BYTES` | Default 32 MiB |
 | `BLUEPAPER_MAX_CONCURRENT_JOBS` | 429 when running jobs hit this |
 | `BLUEPAPER_MAX_QUEUE_DEPTH` | 503 when the queue is full |
@@ -72,7 +72,7 @@ Dummy isolation is the default (`BLUEPAPER_ISOLATION=dummy`). Do not use Dummy i
 
 ## Live smoke
 
-OpenAPI is at `https://<api-fqdn>/openapi.json` (Swagger UI at `/docs`). The operator console is `/`.
+The public URL is the Front Door endpoint (`bluepaper-fd` / `bluepaper-wehi` in `rg-blueskills-wehi-aci-sandbox`). The BluePaper resource group denies `Microsoft.Cdn`, and that group already allows Front Door. It forwards HTTPS to the API container only. OpenAPI is at `https://<front-door-host>/openapi.json` (Swagger UI at `/docs`). The operator console is `/`.
 
 1. `poetry run python dev_scripts/aca_spike.py`
 2. `POST /v1/conversions` with a small PDF

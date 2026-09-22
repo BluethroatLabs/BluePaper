@@ -24,6 +24,9 @@ param assignRoles bool = false
 @description('Create the preview sandbox group via ARM. If this fails, use `aca sandboxgroup create` instead.')
 param deploySandboxGroup bool = false
 
+@description('Comma-separated hostnames accepted by Turnstile. Production is the Front Door hostname.')
+param turnstileHostnames string
+
 var storageName = toLower(take('${prefix}st${uniqueString(resourceGroup().id)}', 24))
 var envName = '${prefix}-env'
 var apiName = '${prefix}-api'
@@ -31,7 +34,6 @@ var workerName = '${prefix}-worker'
 var sandboxGroupName = '${prefix}-sandboxes'
 var workspaceName = '${prefix}-logs'
 var acrServer = split(apiImage, '/')[0]
-var turnstileHostname = '${apiName}.${environment.properties.defaultDomain}'
 
 var blobContributor = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
@@ -145,7 +147,7 @@ resource apiApp 'Microsoft.App/containerApps@2025-07-01' = {
             { name: 'BLUEPAPER_AZURE_STORAGE_ACCOUNT', value: storageAccount.name }
             { name: 'PORT', value: '8080' }
             { name: 'TURNSTILE_SECRET', secretRef: 'turnstile-secret' }
-            { name: 'TURNSTILE_HOSTNAMES', value: turnstileHostname }
+            { name: 'TURNSTILE_HOSTNAMES', value: turnstileHostnames }
           ]
           probes: [
             {

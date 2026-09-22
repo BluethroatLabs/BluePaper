@@ -1,5 +1,4 @@
 (() => {
-  const KEY_STORAGE = "bluepaper.apiKey";
   const ACCEPT = [
     ".pdf",
     ".docx",
@@ -50,11 +49,10 @@
     ["vie", "Vietnamese"],
   ];
 
+  const TURNSTILE_SITEKEY = "0x4AAAAAAE_xSgJ6g787dvMB";
+  const TURNSTILE_TEST_SITEKEY = "1x00000000000000000000AA";
+
   const els = {
-    keyForm: document.getElementById("key-form"),
-    keyInput: document.getElementById("api-key"),
-    keySubmit: document.getElementById("key-submit"),
-    keyStatus: document.getElementById("key-status"),
     sourceLine: document.getElementById("source-line"),
     convertForm: document.getElementById("convert-form"),
     convertBtn: document.getElementById("convert-btn"),
@@ -82,7 +80,6 @@
   };
 
   const state = {
-    key: sessionStorage.getItem(KEY_STORAGE) || "",
     file: null,
     conversionId: null,
     pollTimer: null,
@@ -90,22 +87,15 @@
     turnstileToken: "",
   };
 
-  function toast(message) {
-    els.keyStatus.textContent = message;
-    els.keyStatus.classList.toggle("is-on", Boolean(message));
-  }
+  sessionStorage.removeItem("bluepaper.apiKey");
 
   function showSubmitError(message) {
     els.submitError.hidden = !message;
     els.submitError.textContent = message || "";
   }
 
-  async function api(path, options = {}) {
-    const headers = new Headers(options.headers || {});
-    if (state.key) {
-      headers.set("Authorization", `Bearer ${state.key}`);
-    }
-    return fetch(path, { ...options, headers });
+  function api(path, options = {}) {
+    return fetch(path, options);
   }
 
   async function readError(response) {
@@ -120,54 +110,25 @@
     return `${response.status} ${response.statusText}`;
   }
 
-  function setConnected(connected) {
-    els.convertBtn.disabled = !connected || !state.file || !state.turnstileToken;
-    els.keySubmit.textContent = connected ? "Disconnect" : "Connect";
-    els.keyInput.disabled = connected;
-    if (connected) {
-      els.keyInput.value = "••••••••";
-    }
+  function setReady() {
+    els.convertBtn.disabled = !state.file || !state.turnstileToken;
   }
 
-  async function connect(key) {
-    state.key = key.trim();
-    if (!state.key) {
-      throw new Error("API key required");
+  async function loadSource() {
+    try {
+      const response = await api("/v1/source");
+      if (!response.ok) {
+        return;
+      }
+      const source = await response.json();
+      const commit = source.commit
+        ? ` @ ${escapeHtml(source.commit.slice(0, 7))}`
+        : "";
+      const sourceUrl = escapeHtml(source.source_url);
+      els.sourceLine.innerHTML = `<a href="/docs">API</a> · <a href="${sourceUrl}">Corresponding source${commit}</a>`;
+    } catch {
+      /* the footer already links to the repository */
     }
-    const response = await api("/v1/source");
-    if (!response.ok) {
-      state.key = "";
-      sessionStorage.removeItem(KEY_STORAGE);
-      throw new Error(await readError(response));
-    }
-    sessionStorage.setItem(KEY_STORAGE, state.key);
-    const source = await response.json();
-    const commit = source.commit ? ` @ ${escapeHtml(source.commit.slice(0, 7))}` : "";
-    const sourceUrl = escapeHtml(source.source_url);
-    els.sourceLine.innerHTML = `<a href="/docs">API</a> · <a href="${sourceUrl}">Corresponding source${commit}</a>`;
-    setConnected(true);
-    toast("Connected");
-    window.setTimeout(() => toast(""), 1600);
-  }
-
-  function disconnect() {
-    stopPoll();
-    state.key = "";
-    state.file = null;
-    state.conversionId = null;
-    sessionStorage.removeItem(KEY_STORAGE);
-    els.keyInput.value = "";
-    els.keyInput.disabled = false;
-    resetDropLabel();
-    setConnected(false);
-    toast("Disconnected");
-    window.setTimeout(() => toast(""), 1600);
-  }
-
-  function resetDropLabel() {
-    els.dropTitle.textContent = "Drop an untrusted document";
-    els.dropMeta.textContent =
-      "PDF, Office, ODF, EPUB, HWP, or images. Typically 32 MiB max.";
   }
 
   function setFile(file) {
@@ -184,7 +145,7 @@
     els.dropTitle.textContent = name;
     els.dropMeta.textContent = `${formatBytes(file.size)} · ready to queue`;
     showSubmitError("");
-    setConnected(Boolean(state.key));
+    setReady();
   }
 
   function formatBytes(n) {
@@ -295,10 +256,6 @@
   async function queueConversion(event) {
     event.preventDefault();
     showSubmitError("");
-    if (!state.key) {
-      showSubmitError("Connect with the operator API key first.");
-      return;
-    }
     if (!state.file) {
       showSubmitError("Choose a document.");
       return;
@@ -338,7 +295,7 @@
     if (state.turnstileId !== null && window.turnstile) {
       window.turnstile.reset(state.turnstileId);
     }
-    setConnected(Boolean(state.key));
+    setReady();
   }
 
   window.bluepaperTurnstile = function () {
@@ -346,21 +303,26 @@
     if (!widget || !window.turnstile || state.turnstileId !== null) {
       return;
     }
+    const host = window.location.hostname;
+    const sitekey =
+      host === "localhost" || host === "127.0.0.1"
+        ? TURNSTILE_TEST_SITEKEY
+        : TURNSTILE_SITEKEY;
     state.turnstileId = window.turnstile.render(widget, {
-      sitekey: "0x4AAAAAAE_xSgJ6g787dvMB",
+      sitekey,
       action: "queue-conversion",
       theme: "dark",
       callback(token) {
         state.turnstileToken = token;
-        setConnected(Boolean(state.key));
+        setReady();
       },
       "expired-callback"() {
         state.turnstileToken = "";
-        setConnected(Boolean(state.key));
+        setReady();
       },
       "error-callback"() {
         state.turnstileToken = "";
-        setConnected(Boolean(state.key));
+        setReady();
         showSubmitError("Bot check failed. Retry the widget.");
       },
     });
@@ -416,24 +378,10 @@
   els.file.setAttribute("accept", ACCEPT.join(","));
   fillOcr();
 
-  els.keyForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (state.key) {
-      disconnect();
-      return;
-    }
-    try {
-      await connect(els.keyInput.value);
-    } catch (err) {
-      setConnected(false);
-      toast(err.message || "Invalid API key");
-    }
-  });
-
   els.convertForm.addEventListener("submit", (event) => {
     queueConversion(event).catch((err) => {
       showSubmitError(err.message || "Conversion failed");
-      setConnected(Boolean(state.key));
+      setReady();
     });
   });
 
@@ -469,15 +417,6 @@
     deleteJob().catch((err) => showSubmitError(err.message));
   });
 
-  setConnected(false);
-  if (state.key) {
-    connect(state.key).catch(() => {
-      state.key = "";
-      sessionStorage.removeItem(KEY_STORAGE);
-      els.keyInput.value = "";
-      els.keyInput.disabled = false;
-      setConnected(false);
-      toast("Saved API key was rejected");
-    });
-  }
+  setReady();
+  loadSource();
 })();

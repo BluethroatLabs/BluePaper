@@ -53,4 +53,7 @@ def test_record_entity_roundtrip_empty_optionals() -> None:
     assert restored.ocr_lang is None
     assert restored.scan_completed is False
     assert restored.filename == "upload.bin"
+    assert restored.guest is False
     assert restored.status == ConversionStatus.queued
+    record.guest = True
+    assert ConversionRecord.from_entity(record.to_entity()).guest is True

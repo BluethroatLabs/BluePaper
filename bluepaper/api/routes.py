@@ -14,8 +14,13 @@ from fastapi import (
     status,
 )
 from fastapi.responses import Response
+from fastapi.security import HTTPAuthorizationCredentials
 
-from bluepaper.api.auth import get_settings, require_api_key
+from bluepaper.api.auth import (
+    bearer_scheme,
+    get_settings,
+    reject_invalid_key,
+)
 from bluepaper.api.turnstile import client_ip, verify_turnstile
 from bluepaper.config import (
     SUPPORTED_EXTENSIONS,
@@ -39,7 +44,7 @@ from bluepaper.models import (
 from bluepaper.ocr import is_supported_ocr_lang
 from bluepaper.storage.base import Stores
 
-router = APIRouter(prefix="/v1", dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/v1")
 
 ERROR_401 = {
     status.HTTP_401_UNAUTHORIZED: {
@@ -59,12 +64,64 @@ def get_stores(request: Request) -> Stores:
     return request.app.state.stores  # type: ignore[no-any-return]
 
 
+Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]
+
+
+async def gate_queue(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    credentials: Credentials,
+) -> None:
+    """Integrator key, or a completed Turnstile challenge when the key is omitted."""
+    key = reject_invalid_key(credentials, settings)
+    if key == "valid":
+        request.state.guest = False
+        return
+    secret = (settings.turnstile_secret or "").strip()
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing or invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token: str | None = None
+    form = await request.form()
+    raw = form.get("cf-turnstile-response")
+    if isinstance(raw, str):
+        token = raw
+    verify_turnstile(token, client_ip(request), settings)
+    request.state.guest = True
+
+
+def _visible_record(
+    stores: Stores,
+    conversion_id: str,
+    settings: Settings,
+    credentials: HTTPAuthorizationCredentials | None,
+) -> ConversionRecord:
+    record = stores.table.get(conversion_id)
+    key = reject_invalid_key(credentials, settings)
+    if key == "valid":
+        if record is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="conversion not found",
+            )
+        return record
+    if record is None or not record.guest:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing or invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return record
+
+
 @router.get(
     "/source",
     response_model=SourceResponse,
     tags=["meta"],
     summary="AGPL corresponding source",
-    responses=ERROR_401,
 )
 def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceResponse:
     return SourceResponse(
@@ -103,6 +160,7 @@ def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceRespon
             "description": "Queue saturated",
         },
     },
+    dependencies=[Depends(gate_queue)],
 )
 async def create_conversion(
     request: Request,
@@ -111,10 +169,19 @@ async def create_conversion(
     file: Annotated[UploadFile, File()],
     ocr_lang: Annotated[str | None, Form()] = None,
     cf_turnstile_response: Annotated[
-        str | None, Form(alias="cf-turnstile-response")
+        str | None,
+        Form(
+            alias="cf-turnstile-response",
+            description=(
+                "Cloudflare Turnstile token. Required when the integrator "
+                "API key is omitted."
+            ),
+        ),
     ] = None,
 ) -> AcceptedResponse:
-    verify_turnstile(cf_turnstile_response, client_ip(request), settings)
+    # The token is checked in gate_queue. The parameter stays so OpenAPI
+    # documents the multipart field.
+    del cf_turnstile_response
     filename = file.filename or "upload.bin"
     ext = extension_of(filename)
     if ext not in SUPPORTED_EXTENSIONS:
@@ -164,6 +231,7 @@ async def create_conversion(
         created_at=created_at,
         ocr_lang=ocr_lang,
         filename=filename,
+        guest=bool(getattr(request.state, "guest", False)),
     )
     stores.table.create(record)
     stores.queue.enqueue(conversion_id)
@@ -185,9 +253,11 @@ async def create_conversion(
 )
 def get_conversion(
     conversion_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+    credentials: Credentials,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> StatusResponse:
-    record = _require_record(stores, conversion_id)
+    record = _visible_record(stores, conversion_id, settings, credentials)
     return _status_response(record)
 
 
@@ -208,9 +278,11 @@ def get_conversion(
 )
 def get_report(
     conversion_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+    credentials: Credentials,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> Response:
-    record = _require_record(stores, conversion_id)
+    record = _visible_record(stores, conversion_id, settings, credentials)
     if record.status == ConversionStatus.succeeded or (
         record.status == ConversionStatus.failed and record.scan_completed
     ):
@@ -249,9 +321,11 @@ def get_report(
 )
 def get_pdf(
     conversion_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+    credentials: Credentials,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> Response:
-    record = _require_record(stores, conversion_id)
+    record = _visible_record(stores, conversion_id, settings, credentials)
     if record.status != ConversionStatus.succeeded:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -275,9 +349,11 @@ def get_pdf(
 )
 def delete_conversion(
     conversion_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+    credentials: Credentials,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> Response:
-    record = _require_record(stores, conversion_id)
+    record = _visible_record(stores, conversion_id, settings, credentials)
     if record.status in (ConversionStatus.queued, ConversionStatus.running):
         record.status = ConversionStatus.cancelled
         record.finished_at = utc_now()
@@ -288,16 +364,6 @@ def delete_conversion(
     stores.blobs.delete(report_blob_key(conversion_id))
     stores.table.delete(conversion_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-def _require_record(stores: Stores, conversion_id: str) -> ConversionRecord:
-    record = stores.table.get(conversion_id)
-    if record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="conversion not found",
-        )
-    return record
 
 
 def _status_response(record: ConversionRecord) -> StatusResponse:

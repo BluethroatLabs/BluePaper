@@ -8,9 +8,9 @@ The product contract is [ARCHITECTURE.md](ARCHITECTURE.md). Deep PDF-analysis re
 
 ## HTTP API
 
-All `/v1` routes require `Authorization: Bearer <api-key>`. Conversion ids look like `cnv_…`. Hashes are SHA-256 hex.
+Integrators send `Authorization: Bearer <api-key>` on conversion routes. The console does not: `POST /v1/conversions` accepts a completed Turnstile token instead, and that conversion id then authorizes status, report, PDF, and delete. Conversions created with an API key still require it. `GET /v1/source` is public. Conversion ids look like `cnv_…`. Hashes are SHA-256 hex.
 
-OpenAPI is unauthenticated: `GET /openapi.json` (spec) and `GET /docs` (Swagger UI). The operator UI is `GET /`.
+OpenAPI is unauthenticated: `GET /openapi.json` (spec) and `GET /docs` (Swagger UI). The console is `GET /`.
 
 - `POST /v1/conversions` — multipart `file` and optional `ocr_lang` → **202** queued
 - `GET /v1/conversions/{id}` — status only
@@ -25,12 +25,16 @@ Unsupported types return **415** before a sandbox is created. Size, concurrency,
 
 ```bash
 export BLUEPAPER_API_KEY=dev
+# Console Turnstile test keys (do not use these in production)
+export TURNSTILE_SECRET=1x0000000000000000000000000000000AA
+export TURNSTILE_HOSTNAMES=localhost,127.0.0.1
 poetry install --with bluepaper,test
 poetry run pytest tests/bluepaper -q
 
 # API (in-memory storage; dummy isolation runs an in-process worker)
 poetry run bluepaper-api
-# Operator UI: http://127.0.0.1:8080  (enter BLUEPAPER_API_KEY)
+# Console: http://127.0.0.1:8080  (Turnstile; no API key in the page)
+# Integrators: Authorization: Bearer $BLUEPAPER_API_KEY
 ```
 
 Production isolation is `BLUEPAPER_ISOLATION=aca`. `dummy` is for local UI and tests only.

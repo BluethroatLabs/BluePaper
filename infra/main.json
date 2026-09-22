@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "15756837854646374721"
+      "templateHash": "8364423110470026420"
     }
   },
   "parameters": {
@@ -59,6 +59,12 @@
       "defaultValue": false,
       "metadata": {
         "description": "Create the preview sandbox group via ARM. If this fails, use `aca sandboxgroup create` instead."
+      }
+    },
+    "turnstileHostnames": {
+      "type": "string",
+      "metadata": {
+        "description": "Comma-separated hostnames accepted by Turnstile. Production is the Front Door hostname."
       }
     }
   },
@@ -232,7 +238,7 @@
                 },
                 {
                   "name": "TURNSTILE_HOSTNAMES",
-                  "value": "[format('{0}.{1}', variables('apiName'), reference(resourceId('Microsoft.App/managedEnvironments', variables('envName')), '2024-03-01').defaultDomain)]"
+                  "value": "[parameters('turnstileHostnames')]"
                 }
               ],
               "probes": [

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "BluePaper",
-    "description": "Upload an untrusted document and receive a PDF rebuilt from pixels, plus a\nregexp report on the original bytes.\n\nSafety comes from destruction, not detection. Zero regexp hits is not \"clean.\"\n\n`/v1` routes require `Authorization: Bearer <api-key>`. `/`, `/ui`,\n`/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.\nThe operator UI at `/` sends the bearer key from the browser.",
+    "description": "Upload an untrusted document and receive a PDF rebuilt from pixels, plus a\nregexp report on the original bytes.\n\nSafety comes from destruction, not detection. Zero regexp hits is not \"clean.\"\n\nIntegrators send `Authorization: Bearer <api-key>` on conversion routes.\nThe console at `/` does not. `POST /v1/conversions` accepts a completed\nTurnstile token instead, and that conversion id then authorizes status,\nreport, PDF, and delete. Key-created conversions still require the API key.\n`GET /v1/source`, `/`, `/ui`, `/healthz`, `/openapi.json`, `/docs`, and\n`/redoc` are unauthenticated.",
     "license": {
       "name": "AGPL-3.0",
       "url": "https://www.gnu.org/licenses/agpl-3.0.html"
@@ -27,23 +27,8 @@
                 }
               }
             }
-          },
-          "401": {
-            "description": "Missing or invalid API key",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/v1/conversions": {
@@ -124,6 +109,16 @@
               }
             }
           },
+          "403": {
+            "description": "Turnstile verification failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Queue saturated",
             "content": {
@@ -148,7 +143,8 @@
         "security": [
           {
             "HTTPBearer": []
-          }
+          },
+          {}
         ]
       }
     },
@@ -162,7 +158,8 @@
         "security": [
           {
             "HTTPBearer": []
-          }
+          },
+          {}
         ],
         "parameters": [
           {
@@ -227,7 +224,8 @@
         "security": [
           {
             "HTTPBearer": []
-          }
+          },
+          {}
         ],
         "parameters": [
           {
@@ -287,7 +285,8 @@
         "security": [
           {
             "HTTPBearer": []
-          }
+          },
+          {}
         ],
         "parameters": [
           {
@@ -364,7 +363,8 @@
         "security": [
           {
             "HTTPBearer": []
-          }
+          },
+          {}
         ],
         "parameters": [
           {
@@ -505,6 +505,18 @@
               }
             ],
             "title": "Ocr Lang"
+          },
+          "cf-turnstile-response": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cf-Turnstile-Response",
+            "description": "Cloudflare Turnstile token. Required when the integrator API key is omitted."
           }
         },
         "type": "object",
@@ -843,7 +855,7 @@
     "securitySchemes": {
       "HTTPBearer": {
         "type": "http",
-        "description": "Operator API key. Send as `Authorization: Bearer <api-key>`.",
+        "description": "Integrator API key. Send as `Authorization: Bearer <api-key>`. Browser clients omit this and complete Turnstile on `POST /v1/conversions` instead.",
         "scheme": "bearer"
       }
     }
