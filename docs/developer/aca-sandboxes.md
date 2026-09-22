@@ -45,7 +45,7 @@ aca sandboxgroup disk create \
 
 Or Python: `SandboxGroupClient.create_disk_image("<oci>", name="dangerzone-doc-to-pixels")`.
 
-Pass the resulting disk id as `BLUEPAPER_SANDBOX_DISK_ID`.
+`just disk` reuses that image when it already exists and sets `BLUEPAPER_SANDBOX_DISK_ID` on the worker.
 
 ## Live spike
 

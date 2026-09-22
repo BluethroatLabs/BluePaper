@@ -41,7 +41,7 @@ az role assignment create \
   --scope "$SANDBOX_GROUP_ID"
 ```
 
-Bake the Dangerzone disk and set `BLUEPAPER_SANDBOX_DISK_ID` on the worker. Confirm with `aca doctor`.
+`just deploy` bakes or reuses the Dangerzone disk and sets `BLUEPAPER_SANDBOX_DISK_ID` on the worker. `just disk` does that step alone. Confirm with `aca doctor`.
 
 ## Operator config
 

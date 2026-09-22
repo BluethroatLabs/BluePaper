@@ -27,6 +27,9 @@ param deploySandboxGroup bool = false
 @description('Comma-separated hostnames accepted by Turnstile. Production is the Front Door hostname.')
 param turnstileHostnames string
 
+@description('Dangerzone sandbox disk id. Empty until the disk exists.')
+param sandboxDiskId string = ''
+
 var storageName = toLower(take('${prefix}st${uniqueString(resourceGroup().id)}', 24))
 var envName = '${prefix}-env'
 var apiName = '${prefix}-api'
@@ -34,6 +37,18 @@ var workerName = '${prefix}-worker'
 var sandboxGroupName = '${prefix}-sandboxes'
 var workspaceName = '${prefix}-logs'
 var acrServer = split(apiImage, '/')[0]
+var workerEnv = concat([
+  { name: 'BLUEPAPER_API_KEY', secretRef: 'api-key' }
+  { name: 'BLUEPAPER_STORAGE_BACKEND', value: 'azure' }
+  { name: 'BLUEPAPER_ISOLATION', value: 'aca' }
+  { name: 'BLUEPAPER_AZURE_STORAGE_ACCOUNT', value: storageAccount.name }
+  { name: 'BLUEPAPER_AZURE_SUBSCRIPTION_ID', value: subscription().subscriptionId }
+  { name: 'BLUEPAPER_AZURE_RESOURCE_GROUP', value: resourceGroup().name }
+  { name: 'BLUEPAPER_AZURE_REGION', value: location }
+  { name: 'BLUEPAPER_SANDBOX_GROUP', value: sandboxGroupName }
+], empty(sandboxDiskId) ? [] : [
+  { name: 'BLUEPAPER_SANDBOX_DISK_ID', value: sandboxDiskId }
+])
 
 var blobContributor = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
@@ -187,16 +202,7 @@ resource workerApp 'Microsoft.App/containerApps@2025-07-01' = {
         {
           name: 'worker'
           image: workerImage
-          env: [
-            { name: 'BLUEPAPER_API_KEY', secretRef: 'api-key' }
-            { name: 'BLUEPAPER_STORAGE_BACKEND', value: 'azure' }
-            { name: 'BLUEPAPER_ISOLATION', value: 'aca' }
-            { name: 'BLUEPAPER_AZURE_STORAGE_ACCOUNT', value: storageAccount.name }
-            { name: 'BLUEPAPER_AZURE_SUBSCRIPTION_ID', value: subscription().subscriptionId }
-            { name: 'BLUEPAPER_AZURE_RESOURCE_GROUP', value: resourceGroup().name }
-            { name: 'BLUEPAPER_AZURE_REGION', value: location }
-            { name: 'BLUEPAPER_SANDBOX_GROUP', value: sandboxGroupName }
-          ]
+          env: workerEnv
         }
       ]
       scale: {

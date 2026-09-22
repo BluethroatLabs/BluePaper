@@ -8,7 +8,7 @@
 #
 #   just              # this list
 #   just use          # select the subscription
-#   just deploy       # build, push, bicep, worker sandbox role
+#   just deploy       # build, push, bicep, sandbox disk, worker role
 #   just openapi      # write docs/openapi.json
 #   just disk         # bake the Dangerzone conversion disk (`aca` CLI)
 #   just smoke        # GET /healthz and /openapi.json
@@ -82,6 +82,19 @@ infra:
         --name "{{ api_name }}" \
         --query properties.configuration.ingress.fqdn -o tsv)"
     fi
+    disk_id="${BLUEPAPER_SANDBOX_DISK_ID:-}"
+    if [[ -z "$disk_id" ]]; then
+      disk_id="$(az containerapp show \
+        --subscription "{{ subscription }}" \
+        --resource-group "{{ rg }}" \
+        --name "{{ worker_name }}" \
+        --query "properties.template.containers[0].env[?name=='BLUEPAPER_SANDBOX_DISK_ID'].value | [0]" \
+        -o tsv 2>/dev/null || true)"
+    fi
+    disk_args=()
+    if [[ -n "$disk_id" ]]; then
+      disk_args+=(sandboxDiskId="$disk_id")
+    fi
     az deployment group create \
       --subscription "{{ subscription }}" \
       --resource-group "{{ rg }}" \
@@ -92,7 +105,8 @@ infra:
         turnstileSecret="$TURNSTILE_SECRET" \
         turnstileHostnames="$turnstile_host" \
         apiImage="$acr/{{ api_name }}:{{ tag }}" \
-        workerImage="$acr/{{ worker_name }}:{{ tag }}"
+        workerImage="$acr/{{ worker_name }}:{{ tag }}" \
+        "${disk_args[@]}"
 
 # Create the sandbox group with `aca` when the Bicep preview resource is unavailable.
 sandbox-group:
@@ -151,7 +165,7 @@ worker-role:
       --role "Container Apps SandboxGroup Data Owner" \
       --scope "$sandbox_id" || true
 
-# Bake a clean Dangerzone disk and set BLUEPAPER_SANDBOX_DISK_ID on the worker.
+# Reuse or bake the Dangerzone disk and set BLUEPAPER_SANDBOX_DISK_ID on the worker.
 disk:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -159,11 +173,55 @@ disk:
     just sandbox-group
     aca auth login
     aca doctor
-    aca sandboxgroup disk create \
-      --image "{{ dangerzone_image }}" \
-      --name dangerzone-doc-to-pixels
-    echo "Copy the disk id from the command above, then:"
-    echo "  az containerapp update -g {{ rg }} -n {{ worker_name }} --set-env-vars BLUEPAPER_SANDBOX_DISK_ID=<disk-id>"
+    disk_name="dangerzone-doc-to-pixels"
+    parse_disk_id() {
+      python3 -c '
+import json, sys
+want, mode = sys.argv[1], sys.argv[2]
+raw = sys.stdin.read().strip()
+if not raw:
+    sys.exit(0)
+data = json.loads(raw)
+if isinstance(data, list):
+    items = data
+elif isinstance(data, dict) and isinstance(data.get("value"), list):
+    items = data["value"]
+elif isinstance(data, dict) and data.get("id"):
+    items = [data]
+else:
+    items = []
+
+def item_name(item):
+    labels = item.get("labels") or {}
+    return item.get("name") or labels.get("name") or ""
+
+if mode == "create" and len(items) == 1 and items[0].get("id"):
+    print(items[0]["id"])
+    sys.exit(0)
+for item in items:
+    if item_name(item) == want and item.get("id"):
+        print(item["id"])
+        break
+' "$disk_name" "$1"
+    }
+    disk_id="$(aca sandboxgroup disk list -o json | parse_disk_id list || true)"
+    if [[ -z "$disk_id" ]]; then
+      disk_id="$(aca sandboxgroup disk create \
+        --image "{{ dangerzone_image }}" \
+        --name "$disk_name" \
+        -o json | parse_disk_id create)"
+    fi
+    if [[ -z "$disk_id" ]]; then
+      echo "Dangerzone disk id was not returned." >&2
+      exit 1
+    fi
+    az containerapp update \
+      --subscription "{{ subscription }}" \
+      --resource-group "{{ rg }}" \
+      --name "{{ worker_name }}" \
+      --set-env-vars "BLUEPAPER_SANDBOX_DISK_ID=$disk_id" \
+      -o none
+    echo "BLUEPAPER_SANDBOX_DISK_ID=$disk_id"
 
 # Front Door in the BlueSkills sandbox. The BluePaper group denies Microsoft.Cdn,
 # and this account cannot create resource groups or edit that policy.
@@ -189,11 +247,10 @@ front-door:
       -o none
     echo "Front Door: https://$host"
 
-# Build, push, deploy infra, ensure sandbox group, grant worker roles, put Front Door in front.
-deploy: use build infra sandbox-group worker-role front-door
+# Build, push, deploy infra, ensure sandbox group, grant worker roles, set the disk, put Front Door in front.
+deploy: use build infra sandbox-group worker-role disk front-door
     @echo
     @echo "API: https://$(az afd endpoint show -g "{{ edge_rg }}" --profile-name "{{ front_door }}" --endpoint-name "{{ front_door_endpoint }}" --query hostName -o tsv)"
-    @echo "Next: just disk   # bake conversion image, then just smoke"
 
 # GET /healthz and /openapi.json on the deployed API.
 smoke:
