@@ -123,12 +123,6 @@ button:disabled {
   text-decoration: none;
 }
 
-.mark {
-  width: 1.75rem;
-  height: 1.75rem;
-  display: block;
-}
-
 .brand-name {
   font-size: 1.05rem;
   font-weight: 600;
