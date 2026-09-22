@@ -10,7 +10,7 @@ The product contract is [ARCHITECTURE.md](ARCHITECTURE.md). Deep PDF-analysis re
 
 All `/v1` routes require `Authorization: Bearer <api-key>`. Conversion ids look like `cnv_…`. Hashes are SHA-256 hex.
 
-OpenAPI is unauthenticated: `GET /openapi.json` (spec) and `GET /docs` (Swagger UI).
+OpenAPI is unauthenticated: `GET /openapi.json` (spec) and `GET /docs` (Swagger UI). The operator UI is `GET /`.
 
 - `POST /v1/conversions` — multipart `file` and optional `ocr_lang` → **202** queued
 - `GET /v1/conversions/{id}` — status only
@@ -28,15 +28,16 @@ export BLUEPAPER_API_KEY=dev
 poetry install --with bluepaper,test
 poetry run pytest tests/bluepaper -q
 
-# API (in-memory storage; run a worker in the same process only via tests)
+# API (in-memory storage; dummy isolation runs an in-process worker)
 poetry run bluepaper-api
+# Operator UI: http://127.0.0.1:8080  (enter BLUEPAPER_API_KEY)
 ```
 
-Production isolation is `BLUEPAPER_ISOLATION=aca`. `dummy` is for tests only.
+Production isolation is `BLUEPAPER_ISOLATION=aca`. `dummy` is for local UI and tests only.
 
 Azure deploy, identities, and disk baking: [docs/developer/azure.md](docs/developer/azure.md). Sandbox lifecycle: [docs/developer/aca-sandboxes.md](docs/developer/aca-sandboxes.md).
 
-The Dangerzone desktop GUI and Podman/gVisor path remain in this tree for upstream mergeability; they are not the BluePaper product.
+The Dangerzone desktop GUI and Podman/gVisor path remain in this tree for upstream mergeability. BluePaper’s product UI is the operator console at `/`.
 
 ## License
 

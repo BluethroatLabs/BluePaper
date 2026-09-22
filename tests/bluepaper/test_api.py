@@ -300,6 +300,32 @@ def test_healthz_body(client) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_frontend_is_public(client) -> None:
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert b"BluePaper" in response.content
+    assert b"Safety comes from" in response.content
+
+
+def test_frontend_assets_are_public(client) -> None:
+    css = client.get("/ui/styles.css")
+    js = client.get("/ui/app.js")
+    icon = client.get("/ui/favicon.svg")
+    assert css.status_code == 200
+    assert "text/css" in css.headers["content-type"]
+    assert js.status_code == 200
+    assert icon.status_code == 200
+    assert b"--background" in css.content
+    assert b"/v1/conversions" in js.content
+
+
+def test_frontend_is_not_in_openapi(client) -> None:
+    spec = client.get("/openapi.json").json()
+    assert "/" not in spec["paths"]
+    assert "/ui" not in spec["paths"]
+
+
 def test_report_and_pdf_unknown_are_404(client) -> None:
     missing = "cnv_01J8Z3K4N5P6Q7R8S9T0"
     assert (

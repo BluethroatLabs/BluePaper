@@ -1,0 +1,447 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.46.1.21595",
+      "templateHash": "4418426359948470143"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region"
+      }
+    },
+    "prefix": {
+      "type": "string",
+      "defaultValue": "bluepaper",
+      "metadata": {
+        "description": "Name prefix for Azure resources"
+      }
+    },
+    "apiKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Bearer API key for the BluePaper HTTP API"
+      }
+    },
+    "apiImage": {
+      "type": "string",
+      "metadata": {
+        "description": "API container image"
+      }
+    },
+    "workerImage": {
+      "type": "string",
+      "metadata": {
+        "description": "Worker container image"
+      }
+    },
+    "assignRoles": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Assign storage data-plane roles to the API and worker. Requires permission to assign Blob/Queue/Table Data Contributor."
+      }
+    },
+    "deploySandboxGroup": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Create the preview sandbox group via ARM. If this fails, use `aca sandboxgroup create` instead."
+      }
+    }
+  },
+  "variables": {
+    "storageName": "[toLower(take(format('{0}st{1}', parameters('prefix'), uniqueString(resourceGroup().id)), 24))]",
+    "envName": "[format('{0}-env', parameters('prefix'))]",
+    "apiName": "[format('{0}-api', parameters('prefix'))]",
+    "workerName": "[format('{0}-worker', parameters('prefix'))]",
+    "sandboxGroupName": "[format('{0}-sandboxes', parameters('prefix'))]",
+    "workspaceName": "[format('{0}-logs', parameters('prefix'))]",
+    "acrServer": "[split(parameters('apiImage'), '/')[0]]",
+    "blobContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+    "queueContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '974c5e8b-45b9-4653-ba55-5f855dd0fb88')]",
+    "tableContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2022-10-01",
+      "name": "[variables('workspaceName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('storageName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageName'), 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageName'), 'default', 'bluepaper')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('storageName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/queueServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageName'), 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/queueServices/queues",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageName'), 'default', 'conversions')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/queueServices', variables('storageName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/tableServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageName'), 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageName'), 'default', 'conversions')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/tableServices', variables('storageName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('envName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName')), '2022-10-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName')), '2022-10-01').primarySharedKey]"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2025-07-01",
+      "name": "[variables('apiName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "configuration": {
+          "ingress": {
+            "external": true,
+            "targetPort": 8080
+          },
+          "secrets": [
+            {
+              "name": "api-key",
+              "value": "[parameters('apiKey')]"
+            }
+          ],
+          "registries": [
+            {
+              "server": "[variables('acrServer')]",
+              "identity": "system"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "api",
+              "image": "[parameters('apiImage')]",
+              "env": [
+                {
+                  "name": "BLUEPAPER_API_KEY",
+                  "secretRef": "api-key"
+                },
+                {
+                  "name": "BLUEPAPER_STORAGE_BACKEND",
+                  "value": "azure"
+                },
+                {
+                  "name": "BLUEPAPER_AZURE_STORAGE_ACCOUNT",
+                  "value": "[variables('storageName')]"
+                },
+                {
+                  "name": "PORT",
+                  "value": "8080"
+                }
+              ],
+              "probes": [
+                {
+                  "type": "Liveness",
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 8080
+                  }
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 5
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2025-07-01",
+      "name": "[variables('workerName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "configuration": {
+          "secrets": [
+            {
+              "name": "api-key",
+              "value": "[parameters('apiKey')]"
+            }
+          ],
+          "registries": [
+            {
+              "server": "[variables('acrServer')]",
+              "identity": "system"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "worker",
+              "image": "[parameters('workerImage')]",
+              "env": [
+                {
+                  "name": "BLUEPAPER_API_KEY",
+                  "secretRef": "api-key"
+                },
+                {
+                  "name": "BLUEPAPER_STORAGE_BACKEND",
+                  "value": "azure"
+                },
+                {
+                  "name": "BLUEPAPER_ISOLATION",
+                  "value": "aca"
+                },
+                {
+                  "name": "BLUEPAPER_AZURE_STORAGE_ACCOUNT",
+                  "value": "[variables('storageName')]"
+                },
+                {
+                  "name": "BLUEPAPER_AZURE_SUBSCRIPTION_ID",
+                  "value": "[subscription().subscriptionId]"
+                },
+                {
+                  "name": "BLUEPAPER_AZURE_RESOURCE_GROUP",
+                  "value": "[resourceGroup().name]"
+                },
+                {
+                  "name": "BLUEPAPER_AZURE_REGION",
+                  "value": "[parameters('location')]"
+                },
+                {
+                  "name": "BLUEPAPER_SANDBOX_GROUP",
+                  "value": "[variables('sandboxGroupName')]"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 8,
+            "rules": [
+              {
+                "name": "queue",
+                "azureQueue": {
+                  "accountName": "[variables('storageName')]",
+                  "queueName": "conversions",
+                  "queueLength": 1,
+                  "identity": "system"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deploySandboxGroup')]",
+      "type": "Microsoft.App/sandboxGroups",
+      "apiVersion": "2026-02-01-preview",
+      "name": "[variables('sandboxGroupName')]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "condition": "[parameters('assignRoles')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), resourceId('Microsoft.App/containerApps', variables('apiName')), 'blob')]",
+      "properties": {
+        "roleDefinitionId": "[variables('blobContributor')]",
+        "principalId": "[reference(resourceId('Microsoft.App/containerApps', variables('apiName')), '2025-07-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', variables('apiName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('assignRoles')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), resourceId('Microsoft.App/containerApps', variables('apiName')), 'queue')]",
+      "properties": {
+        "roleDefinitionId": "[variables('queueContributor')]",
+        "principalId": "[reference(resourceId('Microsoft.App/containerApps', variables('apiName')), '2025-07-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', variables('apiName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('assignRoles')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), resourceId('Microsoft.App/containerApps', variables('apiName')), 'table')]",
+      "properties": {
+        "roleDefinitionId": "[variables('tableContributor')]",
+        "principalId": "[reference(resourceId('Microsoft.App/containerApps', variables('apiName')), '2025-07-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', variables('apiName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('assignRoles')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), resourceId('Microsoft.App/containerApps', variables('workerName')), 'blob')]",
+      "properties": {
+        "roleDefinitionId": "[variables('blobContributor')]",
+        "principalId": "[reference(resourceId('Microsoft.App/containerApps', variables('workerName')), '2025-07-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+        "[resourceId('Microsoft.App/containerApps', variables('workerName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('assignRoles')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), resourceId('Microsoft.App/containerApps', variables('workerName')), 'queue')]",
+      "properties": {
+        "roleDefinitionId": "[variables('queueContributor')]",
+        "principalId": "[reference(resourceId('Microsoft.App/containerApps', variables('workerName')), '2025-07-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+        "[resourceId('Microsoft.App/containerApps', variables('workerName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('assignRoles')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), resourceId('Microsoft.App/containerApps', variables('workerName')), 'table')]",
+      "properties": {
+        "roleDefinitionId": "[variables('tableContributor')]",
+        "principalId": "[reference(resourceId('Microsoft.App/containerApps', variables('workerName')), '2025-07-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+        "[resourceId('Microsoft.App/containerApps', variables('workerName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageName')]"
+    },
+    "apiFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', variables('apiName')), '2025-07-01').configuration.ingress.fqdn]"
+    },
+    "sandboxGroupName": {
+      "type": "string",
+      "value": "[variables('sandboxGroupName')]"
+    },
+    "workerPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', variables('workerName')), '2025-07-01', 'full').identity.principalId]"
+    }
+  }
+}

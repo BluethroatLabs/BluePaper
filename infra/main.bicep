@@ -106,7 +106,7 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
-resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
+resource apiApp 'Microsoft.App/containerApps@2025-07-01' = {
   name: apiName
   location: location
   identity: { type: 'SystemAssigned' }
@@ -154,7 +154,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
+resource workerApp 'Microsoft.App/containerApps@2025-07-01' = {
   name: workerName
   location: location
   identity: { type: 'SystemAssigned' }
@@ -194,13 +194,11 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
         rules: [
           {
             name: 'queue'
-            custom: {
-              type: 'azure-queue'
-              metadata: {
-                accountName: storageAccount.name
-                queueName: 'conversions'
-                queueLength: '1'
-              }
+            azureQueue: {
+              accountName: storageAccount.name
+              queueName: 'conversions'
+              queueLength: 1
+              identity: 'system'
             }
           }
         ]

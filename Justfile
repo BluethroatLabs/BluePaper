@@ -110,8 +110,19 @@ worker-role:
       --query "[?name=='{{ sandbox_group }}'].id" -o tsv)"
     az role assignment create --assignee "$api_id" --role AcrPull --scope "$acr_id" || true
     az role assignment create --assignee "$worker_id" --role AcrPull --scope "$acr_id" || true
-    az containerapp registry set -g "{{ rg }}" -n "{{ api_name }}" --server "$acr" --identity system
-    az containerapp registry set -g "{{ rg }}" -n "{{ worker_name }}" --server "$acr" --identity system
+    bind_registry() {
+      local name="$1"
+      local current
+      current="$(az containerapp show -g "{{ rg }}" -n "$name" \
+        --query "properties.configuration.registries[?server=='$acr'].identity | [0]" -o tsv)"
+      if [[ "$current" == "system" ]]; then
+        echo "$name already pulls $acr with system identity"
+        return 0
+      fi
+      az containerapp registry set -g "{{ rg }}" -n "$name" --server "$acr" --identity system
+    }
+    bind_registry "{{ api_name }}"
+    bind_registry "{{ worker_name }}"
     if [[ -z "$sandbox_id" ]]; then
       echo "No sandbox group yet. Run: just sandbox-group && just worker-role" >&2
       exit 1

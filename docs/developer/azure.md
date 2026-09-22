@@ -72,7 +72,7 @@ Dummy isolation is the default (`BLUEPAPER_ISOLATION=dummy`). Do not use Dummy i
 
 ## Live smoke
 
-OpenAPI is at `https://<api-fqdn>/openapi.json` (Swagger UI at `/docs`).
+OpenAPI is at `https://<api-fqdn>/openapi.json` (Swagger UI at `/docs`). The operator console is `/`.
 
 1. `poetry run python dev_scripts/aca_spike.py`
 2. `POST /v1/conversions` with a small PDF
