@@ -10,7 +10,7 @@
 #   just use          # select the subscription
 #   just deploy       # build, push, bicep, sandbox disk, worker role
 #   just openapi      # write docs/openapi.json
-#   just disk         # bake the Dangerzone conversion disk (`aca` CLI)
+#   just disk         # reuse or bake the Dangerzone disk and set it on the worker
 #   just smoke        # GET /healthz and /openapi.json
 
 set dotenv-load := true
@@ -171,20 +171,14 @@ disk:
     set -euo pipefail
     az account set --subscription "{{ subscription }}"
     just sandbox-group
-    aca auth login
-    aca doctor
-    disk_name="dangerzone-doc-to-pixels"
-    disk_id="$(aca sandboxgroup disk list -o json | python3 dev_scripts/parse_disk_id.py "$disk_name" list || true)"
-    if [[ -z "$disk_id" ]]; then
-      disk_id="$(aca sandboxgroup disk create \
-        --image "{{ dangerzone_image }}" \
-        --name "$disk_name" \
-        -o json | python3 dev_scripts/parse_disk_id.py "$disk_name" create)"
-    fi
-    if [[ -z "$disk_id" ]]; then
-      echo "Dangerzone disk id was not returned." >&2
-      exit 1
-    fi
+    region="$(az group show --name "{{ rg }}" --query location -o tsv)"
+    disk_id="$(python3 dev_scripts/ensure_sandbox_disk.py \
+      --subscription "{{ subscription }}" \
+      --resource-group "{{ rg }}" \
+      --region "$region" \
+      --sandbox-group "{{ sandbox_group }}" \
+      --name dangerzone-doc-to-pixels \
+      --image "{{ dangerzone_image }}")"
     az containerapp update \
       --subscription "{{ subscription }}" \
       --resource-group "{{ rg }}" \

@@ -45,7 +45,7 @@ aca sandboxgroup disk create \
 
 Or Python: `SandboxGroupClient.create_disk_image("<oci>", name="dangerzone-doc-to-pixels")`.
 
-`just disk` reuses that image when it already exists and sets `BLUEPAPER_SANDBOX_DISK_ID` on the worker.
+`just disk` does the same through the Azure CLI. It reuses that image when it already exists and sets `BLUEPAPER_SANDBOX_DISK_ID` on the worker.
 
 ## Live spike
 
