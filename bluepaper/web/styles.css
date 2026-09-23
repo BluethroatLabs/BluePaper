@@ -597,10 +597,12 @@ select {
 }
 
 #pdf-pages {
+  container-type: size;
   display: grid;
-  gap: 1rem;
+  justify-items: center;
   align-items: start;
-  max-height: min(70vh, 48rem);
+  gap: 1rem;
+  height: min(88vh, 64rem);
   padding: 1.5rem;
   overflow: auto;
   background: #1a1a1a;
@@ -609,7 +611,7 @@ select {
 .pdf-page {
   position: relative;
   display: block;
-  width: 100%;
+  width: min(100%, calc((100cqh - 2px) / 1.4142));
   min-width: 0;
   padding: 0;
   background: #fff;

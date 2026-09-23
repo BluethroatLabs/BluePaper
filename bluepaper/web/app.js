@@ -417,7 +417,16 @@
     const data = new Uint8Array(await blob.arrayBuffer());
     const pdf = await state.pdfjs.getDocument({ data }).promise;
     const fragment = document.createDocumentFragment();
-    const displayWidth = Math.max((els.preview.clientWidth || 640) - 48, 320);
+    const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const pageStyle = getComputedStyle(els.pdfPages);
+    const padY =
+      (parseFloat(pageStyle.paddingTop) || 0) + (parseFloat(pageStyle.paddingBottom) || 0);
+    const padX =
+      (parseFloat(pageStyle.paddingLeft) || 0) + (parseFloat(pageStyle.paddingRight) || 0);
+    const previewBox = Math.min(window.innerHeight * 0.88, 64 * rootPx);
+    const fitted = (previewBox - padY - 2) / 1.4142;
+    const column = Math.max((els.preview.clientWidth || 640) - padX, 280);
+    const displayWidth = Math.max(Math.min(column, fitted), 280);
     const pixelRatio = window.devicePixelRatio || 1;
     for (let i = 1; i <= pdf.numPages; i += 1) {
       const page = await pdf.getPage(i);
