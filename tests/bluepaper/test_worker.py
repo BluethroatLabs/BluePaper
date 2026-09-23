@@ -1,7 +1,13 @@
 import threading
 from pathlib import Path
 
-from bluepaper.config import ZERO_HITS_CAVEAT, original_blob_key, report_blob_key
+from bluepaper.config import (
+    FAILED_HITS_CAVEAT,
+    FAILED_NO_HITS_CAVEAT,
+    ZERO_HITS_CAVEAT,
+    original_blob_key,
+    report_blob_key,
+)
 from bluepaper.isolation.aca import AcaIsolationProvider
 from bluepaper.isolation.dummy import InProcessDummy
 from bluepaper.models import ConversionRecord, ConversionStatus, utc_now
@@ -78,9 +84,7 @@ def test_dummy_convert_justified_when_javascript_present(
     data = b"%PDF-1.4\n<< /OpenAction 1 0 R /JavaScript 2 0 R >>\n"
     conversion_id = _submit(client, data)
     assert process_one(settings, stores) is True
-    body = client.get(
-        f"/v1/conversions/{conversion_id}/report", headers=auth()
-    ).json()
+    body = client.get(f"/v1/conversions/{conversion_id}/report", headers=auth()).json()
     assert body["conversion_justified"] is True
     assert body["caveat"] is None
     hit_ids = {hit["id"] for hit in body["hits"]}
@@ -99,11 +103,37 @@ def test_failed_convert_still_returns_report(client, stores, settings) -> None:
     report = client.get(f"/v1/conversions/{conversion_id}/report", headers=auth())
     assert report.status_code == 200
     body = report.json()
-    assert body["conversion_justified"] is True
+    assert body["conversion_justified"] is False
+    assert body["caveat"] == FAILED_HITS_CAVEAT
+    assert body["caveat"].startswith("No safe PDF was produced")
+    assert "stripped" not in body["caveat"].lower()
+    assert "rebuilt the document from pixels" not in body["caveat"]
+    assert body["hits"]
     assert body["conversion"]["status"] == "failed"
+    assert body["conversion"]["output_bytes"] is None
 
     pdf = client.get(f"/v1/conversions/{conversion_id}/pdf", headers=auth())
     assert pdf.status_code == 409
+
+
+def test_failed_convert_without_hits_does_not_claim_pixel_rebuild(
+    client, stores, settings
+) -> None:
+    data = b"%PDF-1.4\nplain text document\n"
+    conversion_id = _submit(client, data, "empty.pdf")
+    assert process_one(settings, stores, FailingIsolation()) is True
+
+    status = client.get(f"/v1/conversions/{conversion_id}", headers=auth()).json()
+    assert status["status"] == ConversionStatus.failed.value
+
+    body = client.get(f"/v1/conversions/{conversion_id}/report", headers=auth()).json()
+    assert body["hits"] == []
+    assert body["conversion_justified"] is False
+    assert body["caveat"] == FAILED_NO_HITS_CAVEAT
+    assert body["caveat"].startswith("No safe PDF was produced")
+    assert "rebuilt the document from pixels" not in body["caveat"]
+    assert body["conversion"]["status"] == "failed"
+    assert body["conversion"]["output_bytes"] is None
 
 
 def test_cancel_queued_job(client, stores, settings, sample_pdf: str) -> None:
@@ -173,9 +203,7 @@ def test_missing_original_blob(client, stores, settings) -> None:
     assert status["error"] == "original blob missing"
 
 
-def test_scan_timeout_still_converts(
-    client, stores, settings, monkeypatch
-) -> None:
+def test_scan_timeout_still_converts(client, stores, settings, monkeypatch) -> None:
     def boom(*args, **kwargs):
         raise ScanTimeout()
 
@@ -220,9 +248,7 @@ def test_isolation_exception_name_is_recorded(client, stores, settings) -> None:
     assert status["error"] == "sandbox exploded"
 
 
-def test_cancel_during_convert_keeps_cancelled(
-    client, stores, settings
-) -> None:
+def test_cancel_during_convert_keeps_cancelled(client, stores, settings) -> None:
     class BlockingIsolation:
         def __init__(self) -> None:
             self.started = threading.Event()
@@ -290,7 +316,5 @@ def test_report_missing_blob_is_409(client, stores, settings) -> None:
     conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
     assert process_one(settings, stores) is True
     stores.blobs.delete(report_blob_key(conversion_id))
-    response = client.get(
-        f"/v1/conversions/{conversion_id}/report", headers=auth()
-    )
+    response = client.get(f"/v1/conversions/{conversion_id}/report", headers=auth())
     assert response.status_code == 409

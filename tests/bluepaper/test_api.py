@@ -239,9 +239,7 @@ def test_filename_without_supported_extension_is_415(client) -> None:
 
 
 def test_delete_unknown_is_404(client) -> None:
-    response = client.delete(
-        "/v1/conversions/cnv_01J8Z3K4N5P6Q7R8S9T0", headers=auth()
-    )
+    response = client.delete("/v1/conversions/cnv_01J8Z3K4N5P6Q7R8S9T0", headers=auth())
     assert response.status_code == 404
 
 
@@ -255,9 +253,7 @@ def test_delete_running_marks_cancelled(client, stores) -> None:
             created_at=utc_now(),
         )
     )
-    response = client.delete(
-        "/v1/conversions/cnv_running_cancel", headers=auth()
-    )
+    response = client.delete("/v1/conversions/cnv_running_cancel", headers=auth())
     assert response.status_code == 204
     record = stores.table.get("cnv_running_cancel")
     assert record is not None
@@ -329,6 +325,8 @@ def test_frontend_assets_are_public(client) -> None:
     assert b"--background" in css.content
     assert b"/v1/conversions" in js.content
     assert b"-safe.pdf" in js.content
+    assert b"No safe PDF was produced" in js.content
+    assert b'report.conversion.status === "succeeded"' in js.content
     assert b'link.download = "safe.pdf"' not in js.content
     assert b"pdf-pages" in js.content
     assert b"/ui/vendor/pdf.min.mjs" in js.content
@@ -524,6 +522,5 @@ def test_report_and_pdf_unknown_are_404(client) -> None:
         == 404
     )
     assert (
-        client.get(f"/v1/conversions/{missing}/pdf", headers=auth()).status_code
-        == 404
+        client.get(f"/v1/conversions/{missing}/pdf", headers=auth()).status_code == 404
     )

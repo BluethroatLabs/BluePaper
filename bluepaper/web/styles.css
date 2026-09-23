@@ -579,7 +579,7 @@ select {
   color: #141414;
   font-family: var(--font-serif);
   font-style: italic;
-  font-size: 2.75rem;
+  font-size: 1.65rem;
   line-height: 7.5rem;
 }
 
@@ -650,7 +650,8 @@ select {
   text-transform: uppercase;
 }
 
-.report-banner.is-justified {
+.report-banner.is-justified,
+.report-banner.is-failed {
   background: var(--critical);
 }
 

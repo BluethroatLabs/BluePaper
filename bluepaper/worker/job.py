@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Protocol
 
 from bluepaper.config import (
+    FAILED_HITS_CAVEAT,
+    FAILED_NO_HITS_CAVEAT,
     ZERO_HITS_CAVEAT,
     Settings,
     original_blob_key,
@@ -251,14 +253,17 @@ def _build_report(
     pages: int | None,
     conv_error: str | None,
 ) -> Report:
-    justified = len(hits) > 0
-    if pdf_bytes is not None and conv_error is None:
+    succeeded = pdf_bytes is not None and conv_error is None
+    if succeeded:
         conversion = ConversionOutcome(
             status="succeeded",
             pages=pages,
             ocr_lang=record.ocr_lang,
             output_bytes=len(pdf_bytes),
         )
+        # A hit justifies conversion only once a safe PDF actually exists.
+        justified = len(hits) > 0
+        caveat = None if justified else ZERO_HITS_CAVEAT
     else:
         conversion = ConversionOutcome(
             status="failed",
@@ -266,12 +271,14 @@ def _build_report(
             ocr_lang=record.ocr_lang,
             output_bytes=None,
         )
+        justified = False
+        caveat = FAILED_HITS_CAVEAT if hits else FAILED_NO_HITS_CAVEAT
     return Report(
         conversion_id=record.id,
         sha256=record.sha256,
         catalog_version=catalog_version,
         conversion_justified=justified,
-        caveat=None if justified else ZERO_HITS_CAVEAT,
+        caveat=caveat,
         hits=hits,
         conversion=conversion,
     )

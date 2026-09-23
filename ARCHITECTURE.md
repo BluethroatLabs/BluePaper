@@ -158,9 +158,9 @@ This is deliberately shallower than PDFiD-style object inspection. The point is 
 
 ### Hits
 
-Each hit records pattern id, count, and optional first byte offset. The report narrative states that these constructs **cannot survive** pixel reconstruction, which is why conversion was not vain.
+Each hit records pattern id, count, and optional first byte offset. When conversion succeeded, the report narrative states that these constructs **cannot survive** pixel reconstruction, which is why conversion was not vain.
 
-`conversion_justified` is true when `hits > 0`. When hits are zero, the report still includes a caveat: no obvious indicators; conversion still rebuilt the file from pixels.
+`conversion_justified` is true only when conversion succeeded and `hits > 0`. When hits are zero and a safe PDF was produced, the report still includes a caveat: no obvious indicators; conversion still rebuilt the file from pixels. When conversion did not succeed, `conversion_justified` is false, the hits stay on the report, and the caveat leads with “No safe PDF was produced.” A failed conversion does not claim those indicators were stripped.
 
 **Non-goal:** the retired deep pipeline (dual parsers, JS AST, OCR/QR phishing).
 
@@ -251,9 +251,9 @@ Available when conversion `succeeded`, or when conversion `failed` but the regex
 | --- | --- |
 | `catalog_version` | Pattern catalog identifier |
 | `hits` | Pattern id, count, optional first offset |
-| `conversion_justified` | `true` when `hits.length > 0` |
-| `caveat` | Required when there are no hits: zero indicators is not “clean” |
-| `conversion` | Pages, OCR language, output bytes — present on success |
+| `conversion_justified` | `true` only when conversion succeeded and `hits.length > 0` |
+| `caveat` | On success with no hits: zero indicators is not “clean”. On any non-success: leads with “No safe PDF was produced” |
+| `conversion` | Status, pages, OCR language, output bytes. `output_bytes` is set only when status is `succeeded` |
 
 ```json
 {
@@ -279,7 +279,7 @@ Available when conversion `succeeded`, or when conversion `failed` but the regex
 }
 ```
 
-When hits are empty, `conversion_justified` is `false` and `caveat` explains that conversion still rebuilt the document from pixels.
+When hits are empty and conversion succeeded, `conversion_justified` is `false` and `caveat` explains that conversion still rebuilt the document from pixels. When conversion did not succeed, `caveat` leads with “No safe PDF was produced” and does not claim a pixel rebuild or that indicators were stripped.
 
 ### `GET /v1/conversions/{id}/pdf`
 

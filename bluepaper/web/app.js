@@ -254,11 +254,20 @@
 
   function renderReport(report) {
     els.report.hidden = false;
-    const justified = Boolean(report.conversion_justified);
-    els.reportBanner.className = `report-banner ${justified ? "is-justified" : "is-clean"}`;
-    els.reportBanner.textContent = justified
-      ? "Indicators found — conversion stripped active constructs"
-      : "No indicators — not a malware verdict";
+    const produced = Boolean(
+      report.conversion && report.conversion.status === "succeeded",
+    );
+    if (!produced) {
+      els.reportBanner.className = "report-banner is-failed";
+      els.reportBanner.textContent = "No safe PDF was produced";
+    } else if (report.conversion_justified) {
+      els.reportBanner.className = "report-banner is-justified";
+      els.reportBanner.textContent =
+        "Indicators found — conversion stripped active constructs";
+    } else {
+      els.reportBanner.className = "report-banner is-clean";
+      els.reportBanner.textContent = "No indicators — not a malware verdict";
+    }
     const hits = Array.isArray(report.hits) ? report.hits : [];
     els.hitsTable.hidden = hits.length === 0;
     els.hitsBody.replaceChildren();
@@ -774,6 +783,7 @@
     return {
       dataUrl: canvas.toDataURL("image/png"),
       aspect: canvas.width / canvas.height,
+      widthRatio: 0.2,
     };
   }
 
@@ -795,22 +805,23 @@
     return {
       dataUrl: cropped.toDataURL("image/png"),
       aspect: cropped.width / cropped.height,
+      widthRatio: 0.3,
     };
   }
 
-  function markBox(rect, clientX, clientY, aspect) {
-    let widthRatio = 0.3;
-    let heightRatio = (widthRatio * rect.width) / aspect / rect.height;
+  function markBox(rect, clientX, clientY, aspect, widthRatio = 0.3) {
+    let nextWidth = widthRatio;
+    let heightRatio = (nextWidth * rect.width) / aspect / rect.height;
     const maxHeight = 0.22;
     if (heightRatio > maxHeight) {
       heightRatio = maxHeight;
-      widthRatio = (heightRatio * rect.height * aspect) / rect.width;
+      nextWidth = (heightRatio * rect.height * aspect) / rect.width;
     }
-    let left = (clientX - rect.left) / rect.width - widthRatio / 2;
+    let left = (clientX - rect.left) / rect.width - nextWidth / 2;
     let top = (clientY - rect.top) / rect.height - heightRatio / 2;
-    left = Math.min(Math.max(left, 0), Math.max(0, 1 - widthRatio));
+    left = Math.min(Math.max(left, 0), Math.max(0, 1 - nextWidth));
     top = Math.min(Math.max(top, 0), Math.max(0, 1 - heightRatio));
-    return { left, top, widthRatio };
+    return { left, top, widthRatio: nextWidth };
   }
 
   async function placeSignature(pageEl, clientX, clientY) {
@@ -823,7 +834,7 @@
       els.signStatus.textContent = "Draw or type a signature first.";
       return;
     }
-    const box = markBox(rect, clientX, clientY, signature.aspect);
+    const box = markBox(rect, clientX, clientY, signature.aspect, signature.widthRatio);
     const img = document.createElement("img");
     img.className = "sign-mark";
     img.alt = "";

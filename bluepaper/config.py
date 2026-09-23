@@ -13,6 +13,13 @@ ZERO_HITS_CAVEAT = (
     "No obvious indicators were found; absence of patterns is not a malware "
     "verdict. Conversion still rebuilt the document from pixels."
 )
+# Lead sentence for every report whose conversion did not succeed.
+NO_SAFE_PDF = "No safe PDF was produced."
+FAILED_HITS_CAVEAT = f"{NO_SAFE_PDF} Indicators were found in the original bytes."
+FAILED_NO_HITS_CAVEAT = (
+    f"{NO_SAFE_PDF} No obvious indicators were found; absence of "
+    "patterns is not a malware verdict."
+)
 
 SUPPORTED_EXTENSIONS = frozenset(
     {
