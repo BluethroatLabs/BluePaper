@@ -30,6 +30,18 @@ FAILED_NO_HITS_CAVEAT = (
     "patterns is not a malware verdict."
 )
 
+
+def caveat_for(*, succeeded: bool, hit_count: int) -> str:
+    """Caveat for a finished scan.
+
+    A safe PDF exists only when conversion succeeded. Every other outcome
+    leads with that fact and does not claim a pixel rebuild or that
+    indicators were stripped.
+    """
+    if succeeded:
+        return HITS_CAVEAT if hit_count else ZERO_HITS_CAVEAT
+    return FAILED_HITS_CAVEAT if hit_count else FAILED_NO_HITS_CAVEAT
+
 SUPPORTED_EXTENSIONS = frozenset(
     {
         ".pdf",

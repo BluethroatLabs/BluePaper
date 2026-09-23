@@ -8,11 +8,8 @@ from pathlib import Path
 from typing import Protocol
 
 from bluepaper.config import (
-    FAILED_HITS_CAVEAT,
-    FAILED_NO_HITS_CAVEAT,
-    HITS_CAVEAT,
-    ZERO_HITS_CAVEAT,
     Settings,
+    caveat_for,
     original_blob_key,
     pdf_blob_key,
     report_blob_key,
@@ -265,7 +262,7 @@ def _build_report(
         # Non-empty hits mean the byte scan matched. They do not prove an
         # active construct was present.
         justified = len(hits) > 0
-        caveat = HITS_CAVEAT if justified else ZERO_HITS_CAVEAT
+        caveat = caveat_for(succeeded=True, hit_count=len(hits))
     else:
         conversion = ConversionOutcome(
             status="failed",
@@ -274,7 +271,7 @@ def _build_report(
             output_bytes=None,
         )
         justified = False
-        caveat = FAILED_HITS_CAVEAT if hits else FAILED_NO_HITS_CAVEAT
+        caveat = caveat_for(succeeded=False, hit_count=len(hits))
     return Report(
         conversion_id=record.id,
         sha256=record.sha256,

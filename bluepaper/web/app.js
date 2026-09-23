@@ -297,12 +297,30 @@
       tr.innerHTML = `<td>${escapeHtml(hit.id)}</td><td>${hit.count}</td><td>${offset}</td>`;
       els.hitsBody.appendChild(tr);
     }
-    if (report.caveat) {
+    const caveat = produced ? report.caveat || "" : failureCaveat(report.caveat, hits);
+    if (caveat) {
       els.reportCaveat.hidden = false;
-      els.reportCaveat.textContent = report.caveat;
+      els.reportCaveat.textContent = caveat;
     } else {
       els.reportCaveat.hidden = true;
     }
+  }
+
+  function failureCaveat(caveat, hits) {
+    const text = caveat || "";
+    const misleading =
+      /rebuilt the document from pixels|stripped/i.test(text) ||
+      !text.startsWith("No safe PDF was produced");
+    if (!misleading) {
+      return text;
+    }
+    if (hits.length) {
+      return "No safe PDF was produced. Raw byte indicators were found in the original bytes.";
+    }
+    return (
+      "No safe PDF was produced. No obvious indicators were found; " +
+      "absence of patterns is not a malware verdict."
+    );
   }
 
   function escapeHtml(value) {

@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from bluepaper.config import CATALOG_VERSION, SCHEMA_VERSION
+from bluepaper.config import CATALOG_VERSION, SCHEMA_VERSION, caveat_for
 
 
 def utc_now() -> str:
@@ -119,6 +119,26 @@ class Report(BaseModel):
     caveat: str | None = None
     hits: list[Hit] = Field(default_factory=list)
     conversion: ConversionOutcome | None = None
+
+
+def normalize_failed_report(payload: bytes) -> bytes:
+    """Drop success claims from a report whose conversion did not succeed.
+
+    Stored reports from older workers can say the document was rebuilt, or
+    that indicators were stripped, while ``conversion.status`` is ``failed``
+    and no PDF exists. Callers still receive the raw hits.
+    """
+    try:
+        report = Report.model_validate_json(payload)
+    except ValidationError:
+        return payload
+    report.conversion_justified = False
+    report.caveat = caveat_for(succeeded=False, hit_count=len(report.hits))
+    if report.conversion is not None:
+        if report.conversion.status == "succeeded":
+            report.conversion.status = "failed"
+        report.conversion.output_bytes = None
+    return report.model_dump_json().encode("utf-8")
 
 
 class SourceResponse(BaseModel):

@@ -6,9 +6,12 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     DANGERZONE_DEV=0
 
+# English is a standalone model. Every other language also needs its script
+# model (Latin.traineddata for French, and so on). Shipping only
+# tesseract-ocr-eng makes PyMuPDF fail with
+# "code=3: Tesseract language initialisation failed".
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        tesseract-ocr \
-        tesseract-ocr-eng \
+        tesseract-ocr-all \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-worker.txt /app/requirements-worker.txt

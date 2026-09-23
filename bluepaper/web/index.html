@@ -66,8 +66,8 @@
       <section class="work" aria-labelledby="convert">
         <div class="pane" id="submit-pane">
           <form id="convert-form">
-            <label class="drop" id="drop">
-              <input id="file" name="file" type="file" hidden />
+            <label class="drop" id="drop" for="file">
+              <input id="file" name="file" type="file" />
               <span class="drop-title" id="drop-title">Drop an untrusted document</span>
               <span class="drop-meta" id="drop-meta"
                 >PDF, Office, ODF, EPUB, HWP, or images. Typically 32 MiB max.</span
@@ -94,7 +94,7 @@
           </p>
           <article class="job" id="job" hidden>
             <header class="job-head">
-              <p class="badge" id="job-status">queued</p>
+              <p class="badge" id="job-status" aria-live="polite" aria-atomic="true">queued</p>
               <p class="mono" id="job-id"></p>
             </header>
             <dl class="meta">

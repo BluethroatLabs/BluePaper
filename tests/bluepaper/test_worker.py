@@ -28,11 +28,18 @@ class FailingIsolation:
         document.mark_as_failed()
 
 
-def _submit(client, data: bytes, name: str = "doc.pdf") -> str:
+def _submit(
+    client,
+    data: bytes,
+    name: str = "doc.pdf",
+    ocr_lang: str | None = None,
+) -> str:
+    form = {"ocr_lang": ocr_lang} if ocr_lang else None
     response = client.post(
         "/v1/conversions",
         headers=auth(),
         files={"file": (name, data, "application/pdf")},
+        data=form,
     )
     assert response.status_code == 202
     return response.json()["id"]
@@ -157,6 +164,69 @@ def test_failed_convert_without_hits_does_not_claim_pixel_rebuild(
     assert "rebuilt the document from pixels" not in body["caveat"]
     assert body["conversion"]["status"] == "failed"
     assert body["conversion"]["output_bytes"] is None
+
+
+def test_failed_ocr_does_not_claim_pixel_rebuild(client, stores, settings) -> None:
+    class OcrFailIsolation:
+        def convert(self, document, ocr_lang, progress_callback=None) -> None:
+            document.mark_as_converting()
+            document.mark_as_failed()
+            raise RuntimeError("code=3: Tesseract language initialisation failed")
+
+    conversion_id = _submit(
+        client,
+        b"%PDF-1.4\nplain text document\n",
+        "french.pdf",
+        ocr_lang="fra",
+    )
+    assert process_one(settings, stores, OcrFailIsolation()) is True
+
+    status = client.get(f"/v1/conversions/{conversion_id}", headers=auth()).json()
+    assert status["status"] == ConversionStatus.failed.value
+    assert "Tesseract" in status["error"]
+
+    body = client.get(f"/v1/conversions/{conversion_id}/report", headers=auth()).json()
+    assert body["hits"] == []
+    assert body["conversion_justified"] is False
+    assert body["caveat"] == FAILED_NO_HITS_CAVEAT
+    assert body["caveat"].startswith("No safe PDF was produced")
+    assert "rebuilt the document from pixels" not in body["caveat"]
+    assert "stripped" not in body["caveat"].lower()
+    assert body["conversion"]["status"] == "failed"
+    assert body["conversion"]["pages"] is None
+    assert body["conversion"]["ocr_lang"] == "fra"
+    assert body["conversion"]["output_bytes"] is None
+
+    pdf = client.get(f"/v1/conversions/{conversion_id}/pdf", headers=auth())
+    assert pdf.status_code == 409
+
+
+def test_failed_ocr_with_hits_keeps_indicators_informational(
+    client, stores, settings
+) -> None:
+    class OcrFailIsolation:
+        def convert(self, document, ocr_lang, progress_callback=None) -> None:
+            document.mark_as_failed()
+            raise RuntimeError("code=3: Tesseract language initialisation failed")
+
+    conversion_id = _submit(
+        client,
+        b"%PDF-1.4\n/JavaScript\n",
+        "french-js.pdf",
+        ocr_lang="fra",
+    )
+    assert process_one(settings, stores, OcrFailIsolation()) is True
+    body = client.get(f"/v1/conversions/{conversion_id}/report", headers=auth()).json()
+    assert body["conversion_justified"] is False
+    assert body["caveat"] == FAILED_HITS_CAVEAT
+    assert body["caveat"].startswith("No safe PDF was produced")
+    assert "stripped" not in body["caveat"].lower()
+    assert "rebuilt the document from pixels" not in body["caveat"]
+    assert any(hit["id"] == "pdf.javascript" for hit in body["hits"])
+    assert body["conversion"]["status"] == "failed"
+    assert body["conversion"]["output_bytes"] is None
+    pdf = client.get(f"/v1/conversions/{conversion_id}/pdf", headers=auth())
+    assert pdf.status_code == 409
 
 
 def test_cancel_queued_job(client, stores, settings, sample_pdf: str) -> None:

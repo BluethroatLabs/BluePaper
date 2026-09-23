@@ -7,6 +7,15 @@ import vm from "node:vm";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const app = readFileSync(resolve(root, "bluepaper/web/app.js"), "utf8");
+const page = readFileSync(resolve(root, "bluepaper/web/index.html"), "utf8");
+
+assert.match(page, /<label class="drop" id="drop" for="file">/);
+assert.match(page, /<input id="file" name="file" type="file" \/>/);
+assert.doesNotMatch(page, /id="file"[^>]*\bhidden\b/);
+assert.match(
+  page,
+  /id="job-status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/,
+);
 
 const EMPTY_TITLE = "Drop an untrusted document";
 const EMPTY_META = "PDF, Office, ODF, EPUB, HWP, or images. Typically 32 MiB max.";

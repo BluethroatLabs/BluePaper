@@ -1,7 +1,110 @@
+import json
 from pathlib import Path
 
+from bluepaper.config import (
+    FAILED_HITS_CAVEAT,
+    FAILED_NO_HITS_CAVEAT,
+    ZERO_HITS_CAVEAT,
+    report_blob_key,
+)
 from bluepaper.models import ConversionRecord, ConversionStatus, utc_now
 from tests.bluepaper.conftest import auth
+
+
+def _store_failed_report(stores, record: ConversionRecord, body: dict) -> None:
+    stores.table.create(record)
+    stores.blobs.put(
+        report_blob_key(record.id),
+        json.dumps(body).encode("utf-8"),
+        "application/json",
+    )
+
+
+def test_served_failed_report_drops_pixel_rebuild_claim(client, stores) -> None:
+    record = ConversionRecord(
+        id="cnv_french_ocr",
+        status=ConversionStatus.failed,
+        sha256="c" * 64,
+        nbytes=32,
+        created_at=utc_now(),
+        error="code=3: Tesseract language initialisation failed",
+        ocr_lang="fra",
+        scan_completed=True,
+        filename="french.pdf",
+    )
+    _store_failed_report(
+        stores,
+        record,
+        {
+            "schema_version": "1.0.0",
+            "conversion_id": record.id,
+            "sha256": record.sha256,
+            "catalog_version": "1.0.0",
+            "conversion_justified": False,
+            "caveat": ZERO_HITS_CAVEAT,
+            "hits": [],
+            "conversion": {
+                "status": "failed",
+                "pages": None,
+                "ocr_lang": "fra",
+                "output_bytes": None,
+            },
+        },
+    )
+    report = client.get(f"/v1/conversions/{record.id}/report", headers=auth())
+    assert report.status_code == 200
+    body = report.json()
+    assert body["caveat"] == FAILED_NO_HITS_CAVEAT
+    assert body["caveat"].startswith("No safe PDF was produced")
+    assert "rebuilt the document from pixels" not in body["caveat"]
+    assert body["conversion_justified"] is False
+    assert body["hits"] == []
+    assert body["conversion"]["status"] == "failed"
+    assert body["conversion"]["pages"] is None
+    assert body["conversion"]["output_bytes"] is None
+    pdf = client.get(f"/v1/conversions/{record.id}/pdf", headers=auth())
+    assert pdf.status_code == 409
+
+
+def test_served_failed_report_does_not_claim_indicators_were_stripped(
+    client, stores
+) -> None:
+    record = ConversionRecord(
+        id="cnv_html_pdf",
+        status=ConversionStatus.failed,
+        sha256="d" * 64,
+        nbytes=40,
+        created_at=utc_now(),
+        error="conversion failed",
+        scan_completed=True,
+        filename="html-as-pdf.pdf",
+    )
+    _store_failed_report(
+        stores,
+        record,
+        {
+            "schema_version": "1.0.0",
+            "conversion_id": record.id,
+            "sha256": record.sha256,
+            "catalog_version": "1.0.0",
+            "conversion_justified": True,
+            "caveat": "Conversion stripped active constructs.",
+            "hits": [{"id": "pdf.javascript", "count": 1, "first_offset": 12}],
+            "conversion": {
+                "status": "failed",
+                "pages": None,
+                "ocr_lang": None,
+                "output_bytes": None,
+            },
+        },
+    )
+    body = client.get(f"/v1/conversions/{record.id}/report", headers=auth()).json()
+    assert body["conversion_justified"] is False
+    assert body["caveat"] == FAILED_HITS_CAVEAT
+    assert body["caveat"].startswith("No safe PDF was produced")
+    assert "stripped" not in body["caveat"].lower()
+    assert body["hits"] == [{"id": "pdf.javascript", "count": 1, "first_offset": 12}]
+    assert body["conversion"]["output_bytes"] is None
 
 
 def test_healthz_needs_no_auth(client) -> None:
@@ -350,6 +453,8 @@ def test_frontend_assets_are_public(client) -> None:
     assert b"/v1/conversions" in js.content
     assert b"-safe.pdf" in js.content
     assert b"No safe PDF was produced" in js.content
+    assert b"rebuilt the document from pixels" in js.content
+    assert b"failureCaveat" in js.content
     assert b"Raw byte indicators" in js.content
     assert b"not proof of an active construct" in js.content
     assert b"stripped active constructs" not in js.content

@@ -42,6 +42,7 @@ from bluepaper.models import (
     Report,
     SourceResponse,
     StatusResponse,
+    normalize_failed_report,
     utc_now,
 )
 from bluepaper.ocr import is_supported_ocr_lang
@@ -295,6 +296,8 @@ def get_report(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="report not available",
             )
+        if record.status != ConversionStatus.succeeded:
+            payload = normalize_failed_report(payload)
         return Response(content=payload, media_type="application/json")
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
