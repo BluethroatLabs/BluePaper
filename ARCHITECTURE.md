@@ -2,7 +2,7 @@
 
 This document is the source of truth for BluePaper. It supersedes the product scope in [README.md](README.md) (deep PDF analysis: parser IR, JavaScript AST, visual phishing). That exploration remains in [docs/research-and-architecture.md](docs/research-and-architecture.md) and is not part of this architecture.
 
-BluePaper is a network-service fork of [Dangerzone](https://github.com/freedomofpress/dangerzone): callers upload an untrusted document and receive a PDF rebuilt from pixels, plus a regexp report on the original bytes so they can see that sanitization removed something real.
+BluePaper is a network-service fork of [Dangerzone](https://github.com/freedomofpress/dangerzone): callers upload an untrusted document and receive a PDF rebuilt from pixels, plus a regexp report of raw byte indicators in the original. A hit is not proof that an active construct was present.
 
 ---
 
@@ -10,7 +10,7 @@ BluePaper is a network-service fork of [Dangerzone](https://github.com/freedomof
 
 Safety comes from **destruction**, not detection. The original file is opened only inside an isolated sandbox (LibreOffice, Poppler, and the rest of Dangerzone’s converters). The trusted plane never parses the original. Pixel reconstruction cannot carry JavaScript, macros, embedded executables, malformed-parser exploits, or most metadata.
 
-The regexp pass is **informational**. It answers: was conversion theater, or did the original actually contain active content? Hits such as `/JavaScript`, `/Launch`, or `vbaProject.bin` mean those constructs were present and cannot survive the rebuilt PDF. **Zero hits is not “clean.”** Conversion still runs; the report must say that absence of patterns is not a malware verdict.
+The regexp pass is **informational**. It reports raw byte indicators such as `/JavaScript`, `/Launch`, or `vbaProject.bin`. A hit does not mean that construct was present; the same bytes can occur in metadata or other inert data. **Zero hits is not “clean.”** Compression and other encodings can hide those strings. Conversion still runs; the report must say that absence of patterns is not a malware verdict.
 
 ### Threat model
 
@@ -25,7 +25,7 @@ The regexp pass is **informational**. It answers: was conversion theater, or did
 - A sandbox compromise must not yield network access, secrets, or other jobs’ blobs.
 - The adversary can also try ReDoS and resource exhaustion against the API and the regexp scanner.
 
-**In scope.** Rasterizing supported document types to a safe PDF; reporting byte-level indicators that conversion stripped; running that work as a single-tenant API in the operator’s Azure subscription.
+**In scope.** Rasterizing supported document types to a safe PDF; reporting raw byte indicators from the original; running that work as a single-tenant API in the operator’s Azure subscription.
 
 **Out of scope.** Dual-parser PDF forensics, non-executing JavaScript AST analysis, visual phishing (OCR/QR lures), Windows reader detonation, public multi-tenant SaaS, live URL fetching, and a single binary “malicious” label as the primary output.
 
@@ -128,7 +128,7 @@ The scan runs in the **trusted worker** on pinned original bytes. It is byte-lev
 - Linear-time matching and a wall-clock cap (ReDoS is in the threat model).
 - No PDF parser, no OLE parser, no decompression bomb walk.
 
-This is deliberately shallower than PDFiD-style object inspection. The point is a cheap, parser-free signal that conversion was not vain.
+This is deliberately shallower than PDFiD-style object inspection. The point is a cheap, parser-free list of raw byte indicators. A match is not proof that conversion removed an active construct.
 
 ### Catalog (versioned in the report)
 
@@ -156,11 +156,13 @@ This is deliberately shallower than PDFiD-style object inspection. The point is 
 - ZIP+PDF
 - HTML/HTA markers alongside a document type
 
+`#HH` escapes inside a PDF name are expanded before matching, so `/Java#53cript` is the same indicator as `/JavaScript`. The scan still does not decompress streams or interpret other encodings.
+
 ### Hits
 
-Each hit records pattern id, count, and optional first byte offset. When conversion succeeded, the report narrative states that these constructs **cannot survive** pixel reconstruction, which is why conversion was not vain.
+Each hit records pattern id, count, and optional first byte offset in the original file. Hits are raw byte indicators. The report must not treat a regexp match as proof that an active construct was present.
 
-`conversion_justified` is true only when conversion succeeded and `hits > 0`. When hits are zero and a safe PDF was produced, the report still includes a caveat: no obvious indicators; conversion still rebuilt the file from pixels. When conversion did not succeed, `conversion_justified` is false, the hits stay on the report, and the caveat leads with “No safe PDF was produced.” A failed conversion does not claim those indicators were stripped.
+`conversion_justified` is true only when conversion succeeded and `hits > 0`. It means raw byte indicators were found, not that an active construct was present. When hits are non-empty and a safe PDF was produced, the caveat says so. When hits are zero and a safe PDF was produced, the caveat says that no obvious indicators were found and that absence of patterns is not a malware verdict; conversion still rebuilt the file from pixels. When conversion did not succeed, `conversion_justified` is false, the hits stay on the report, and the caveat leads with “No safe PDF was produced.” A failed conversion does not claim those indicators were stripped.
 
 **Non-goal:** the retired deep pipeline (dual parsers, JS AST, OCR/QR phishing).
 
@@ -250,9 +252,9 @@ Available when conversion `succeeded`, or when conversion `failed` but the regex
 | Field | Meaning |
 | --- | --- |
 | `catalog_version` | Pattern catalog identifier |
-| `hits` | Pattern id, count, optional first offset |
-| `conversion_justified` | `true` only when conversion succeeded and `hits.length > 0` |
-| `caveat` | On success with no hits: zero indicators is not “clean”. On any non-success: leads with “No safe PDF was produced” |
+| `hits` | Raw byte-indicator id, count, optional first offset |
+| `conversion_justified` | `true` only when conversion succeeded and `hits.length > 0`. Not proof of an active construct |
+| `caveat` | On success with hits: raw byte indicators are not proof of an active construct. On success with no hits: zero indicators is not “clean”. On any non-success: leads with “No safe PDF was produced” |
 | `conversion` | Status, pages, OCR language, output bytes. `output_bytes` is set only when status is `succeeded` |
 
 ```json
@@ -262,7 +264,7 @@ Available when conversion `succeeded`, or when conversion `failed` but the regex
   "sha256": "…",
   "catalog_version": "1.0.0",
   "conversion_justified": true,
-  "caveat": null,
+  "caveat": "Hits are raw byte indicators. A match is not proof that an active construct was present.",
   "hits": [
     {
       "id": "pdf.javascript",
@@ -279,7 +281,7 @@ Available when conversion `succeeded`, or when conversion `failed` but the regex
 }
 ```
 
-When hits are empty and conversion succeeded, `conversion_justified` is `false` and `caveat` explains that conversion still rebuilt the document from pixels. When conversion did not succeed, `caveat` leads with “No safe PDF was produced” and does not claim a pixel rebuild or that indicators were stripped.
+When hits are non-empty and conversion succeeded, `caveat` says those hits are raw byte indicators and not proof an active construct was present. When hits are empty and conversion succeeded, `conversion_justified` is `false` and `caveat` explains that conversion still rebuilt the document from pixels. When conversion did not succeed, `caveat` leads with “No safe PDF was produced” and does not claim a pixel rebuild or that indicators were stripped.
 
 ### `GET /v1/conversions/{id}/pdf`
 

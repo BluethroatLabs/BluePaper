@@ -303,6 +303,10 @@ def test_frontend_is_public(client) -> None:
     assert "text/html" in response.headers["content-type"]
     assert b"BluePaper" in response.content
     assert b"Safety comes from" in response.content
+    assert b"A hit does not mean that construct was present." in response.content
+    assert b"constructs were present" not in response.content
+    assert b"Absence of patterns is not a malware verdict" in response.content
+    assert b"Byte indicator" in response.content
     assert b"turnstile-widget" in response.content
     assert b'id="pdf-pages"' in response.content
     assert b'id="job-file"' in response.content
@@ -326,6 +330,9 @@ def test_frontend_assets_are_public(client) -> None:
     assert b"/v1/conversions" in js.content
     assert b"-safe.pdf" in js.content
     assert b"No safe PDF was produced" in js.content
+    assert b"Raw byte indicators" in js.content
+    assert b"not proof of an active construct" in js.content
+    assert b"stripped active constructs" not in js.content
     assert b'report.conversion.status === "succeeded"' in js.content
     assert b'link.download = "safe.pdf"' not in js.content
     assert b"pdf-pages" in js.content

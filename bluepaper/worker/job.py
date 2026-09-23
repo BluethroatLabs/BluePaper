@@ -10,6 +10,7 @@ from typing import Protocol
 from bluepaper.config import (
     FAILED_HITS_CAVEAT,
     FAILED_NO_HITS_CAVEAT,
+    HITS_CAVEAT,
     ZERO_HITS_CAVEAT,
     Settings,
     original_blob_key,
@@ -261,9 +262,10 @@ def _build_report(
             ocr_lang=record.ocr_lang,
             output_bytes=len(pdf_bytes),
         )
-        # A hit justifies conversion only once a safe PDF actually exists.
+        # Non-empty hits mean the byte scan matched. They do not prove an
+        # active construct was present.
         justified = len(hits) > 0
-        caveat = None if justified else ZERO_HITS_CAVEAT
+        caveat = HITS_CAVEAT if justified else ZERO_HITS_CAVEAT
     else:
         conversion = ConversionOutcome(
             status="failed",

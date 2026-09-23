@@ -4,6 +4,7 @@ from pathlib import Path
 from bluepaper.config import (
     FAILED_HITS_CAVEAT,
     FAILED_NO_HITS_CAVEAT,
+    HITS_CAVEAT,
     ZERO_HITS_CAVEAT,
     original_blob_key,
     report_blob_key,
@@ -86,7 +87,9 @@ def test_dummy_convert_justified_when_javascript_present(
     assert process_one(settings, stores) is True
     body = client.get(f"/v1/conversions/{conversion_id}/report", headers=auth()).json()
     assert body["conversion_justified"] is True
-    assert body["caveat"] is None
+    assert body["caveat"] == HITS_CAVEAT
+    assert "not proof" in body["caveat"]
+    assert "stripped" not in body["caveat"].lower()
     hit_ids = {hit["id"] for hit in body["hits"]}
     assert "pdf.javascript" in hit_ids
 

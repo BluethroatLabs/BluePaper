@@ -275,7 +275,7 @@
     } else if (report.conversion_justified) {
       els.reportBanner.className = "report-banner is-justified";
       els.reportBanner.textContent =
-        "Indicators found — conversion stripped active constructs";
+        "Raw byte indicators — not proof of an active construct";
     } else {
       els.reportBanner.className = "report-banner is-clean";
       els.reportBanner.textContent = "No indicators — not a malware verdict";

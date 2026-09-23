@@ -1,6 +1,6 @@
 # BluePaper
 
-Network-service fork of [Dangerzone](https://github.com/freedomofpress/dangerzone). Callers upload an untrusted document and receive a PDF rebuilt from pixels, plus a regexp report on the original bytes so they can see that sanitization removed something real.
+Network-service fork of [Dangerzone](https://github.com/freedomofpress/dangerzone). Callers upload an untrusted document and receive a PDF rebuilt from pixels, plus a regexp report of raw byte indicators in the original. A hit is not proof that an active construct was present.
 
 Safety comes from **destruction**, not detection. Zero regexp hits is not “clean.” The trusted API never opens the original with a document parser. Conversion runs in a disposable Azure Container Apps Sandbox.
 

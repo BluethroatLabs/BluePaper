@@ -13,9 +13,17 @@ ZERO_HITS_CAVEAT = (
     "No obvious indicators were found; absence of patterns is not a malware "
     "verdict. Conversion still rebuilt the document from pixels."
 )
+# Shown when conversion succeeded and the byte scan found indicators.
+# A regexp hit is not evidence that an active construct was present.
+HITS_CAVEAT = (
+    "Hits are raw byte indicators. A match is not proof that an active "
+    "construct was present."
+)
 # Lead sentence for every report whose conversion did not succeed.
 NO_SAFE_PDF = "No safe PDF was produced."
-FAILED_HITS_CAVEAT = f"{NO_SAFE_PDF} Indicators were found in the original bytes."
+FAILED_HITS_CAVEAT = (
+    f"{NO_SAFE_PDF} Raw byte indicators were found in the original bytes."
+)
 FAILED_NO_HITS_CAVEAT = (
     f"{NO_SAFE_PDF} No obvious indicators were found; absence of "
     "patterns is not a malware verdict."

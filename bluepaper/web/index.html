@@ -132,7 +132,7 @@
               <table class="hits" id="hits-table" hidden>
                 <thead>
                   <tr>
-                    <th>Pattern</th>
+                    <th>Byte indicator</th>
                     <th>Count</th>
                     <th>First offset</th>
                   </tr>
@@ -233,10 +233,10 @@
             or most metadata.
           </p>
           <p>
-            The regexp pass is informational. Hits such as
+            The regexp pass lists raw byte indicators such as
             <code>/JavaScript</code>, <code>/Launch</code>, or
-            <code>vbaProject.bin</code> mean those constructs were present and
-            cannot survive the rebuilt PDF.
+            <code>vbaProject.bin</code>.
+            A hit does not mean that construct was present.
           </p>
           <p>
             Absence of patterns is not a malware verdict. Conversion still runs.
