@@ -143,6 +143,17 @@
     els.convertBtn.disabled = !state.file || !state.turnstileToken;
   }
 
+  const emptyDropTitle = els.dropTitle.textContent;
+  const emptyDropMeta = els.dropMeta.textContent;
+
+  function clearSelectedFile() {
+    state.file = null;
+    els.file.value = "";
+    els.dropTitle.textContent = emptyDropTitle;
+    els.dropMeta.textContent = emptyDropMeta;
+    setReady();
+  }
+
   async function loadSource() {
     try {
       const response = await api("/v1/source");
@@ -167,6 +178,7 @@
     const name = file.name || "upload.bin";
     const ext = `.${name.split(".").pop().toLowerCase()}`;
     if (!ACCEPT.includes(ext)) {
+      clearSelectedFile();
       showSubmitError(`Unsupported file type (${ext || "unknown"})`);
       return;
     }
