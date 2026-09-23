@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from typing import Annotated
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from fastapi import (
     APIRouter,
@@ -26,6 +26,7 @@ from bluepaper.api.turnstile import client_ip, verify_turnstile
 from bluepaper.config import (
     SUPPORTED_EXTENSIONS,
     Settings,
+    deployed_source_revision,
     extension_of,
     original_blob_key,
     pdf_blob_key,
@@ -128,7 +129,7 @@ def _visible_record(
 def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceResponse:
     return SourceResponse(
         source_url=settings.source_url,
-        commit=settings.source_commit,
+        commit=deployed_source_revision(settings),
     )
 
 
@@ -378,12 +379,15 @@ def delete_conversion(
 
 
 def _pdf_content_disposition(filename: str) -> str:
+    # Multipart upload can leave a quote already percent-encoded. Decode once,
+    # then encode the extended filename once (RFC 5987).
+    name = unquote(filename)
     ascii_name = "".join(
-        ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "_" for ch in filename
+        ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "_" for ch in name
     )
     if not ascii_name.endswith(".pdf"):
         ascii_name = "document-safe.pdf"
-    encoded = quote(filename, safe="")
+    encoded = quote(name, safe="")
     return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
 
 

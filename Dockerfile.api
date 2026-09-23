@@ -11,6 +11,10 @@ RUN pip install --no-cache-dir -r /app/requirements-api.txt
 COPY bluepaper /app/bluepaper
 COPY share/ocr-languages.json /app/share/ocr-languages.json
 
+# Identifies this image in GET /v1/source. Empty when the build did not pass it.
+ARG SOURCE_COMMIT=""
+ENV BLUEPAPER_SOURCE_COMMIT=${SOURCE_COMMIT}
+
 RUN useradd --create-home --uid 10001 bluepaper
 USER bluepaper
 

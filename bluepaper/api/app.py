@@ -3,14 +3,18 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.responses import Response as StarletteResponse
 
 from bluepaper.api.routes import router
 from bluepaper.config import Settings
@@ -21,6 +25,8 @@ from bluepaper.storage.base import Stores
 log = logging.getLogger("bluepaper.api")
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+# Status, report, and PDF are bearer-or-id protected documents.
+_DOCUMENT_GET = re.compile(r"^/v1/conversions/[^/]+(?:/(?:report|pdf))?$")
 
 
 def _openapi(application: FastAPI) -> dict:
@@ -48,6 +54,7 @@ def _openapi(application: FastAPI) -> dict:
             operation["security"] = [{scheme: []}, {}]
     application.openapi_schema = schema
     return schema
+
 
 OPENAPI_DESCRIPTION = """
 Upload an untrusted document and receive a PDF rebuilt from pixels, plus a
@@ -95,6 +102,16 @@ def create_app(
     application.state.stores = stores
     application.include_router(router)
 
+    @application.middleware("http")
+    async def no_store_conversion_documents(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[StarletteResponse]],
+    ) -> StarletteResponse:
+        response = await call_next(request)
+        if request.method == "GET" and _DOCUMENT_GET.match(request.url.path):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     @application.get("/healthz", response_model=HealthResponse, tags=["meta"])
     def healthz() -> HealthResponse:
         return HealthResponse(status="ok")
@@ -130,9 +147,7 @@ def start_embedded_dummy_worker(settings: Settings, stores: Stores) -> None:
             if not processed:
                 time.sleep(settings.worker_poll_seconds)
 
-    threading.Thread(
-        target=loop, name="bluepaper-dummy-worker", daemon=True
-    ).start()
+    threading.Thread(target=loop, name="bluepaper-dummy-worker", daemon=True).start()
     log.warning("embedded dummy worker started; dummy isolation is not for production")
 
 

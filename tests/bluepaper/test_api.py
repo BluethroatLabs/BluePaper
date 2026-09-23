@@ -7,6 +7,7 @@ from tests.bluepaper.conftest import auth
 def test_healthz_needs_no_auth(client) -> None:
     response = client.get("/healthz")
     assert response.status_code == 200
+    assert response.headers.get("cache-control") != "no-store"
 
 
 def test_openapi_is_public_and_documents_bearer_auth(client) -> None:
@@ -41,6 +42,9 @@ def test_openapi_is_public_and_documents_bearer_auth(client) -> None:
 def test_missing_key_is_401(client) -> None:
     response = client.post("/v1/conversions")
     assert response.status_code == 401
+    document = client.get("/v1/conversions/cnv_missing")
+    assert document.status_code == 401
+    assert document.headers["cache-control"] == "no-store"
 
 
 def test_wrong_key_is_401(client) -> None:
@@ -136,6 +140,21 @@ def test_source_is_public(client) -> None:
     assert response.json()["license"] == "AGPL-3.0"
 
 
+def test_source_falls_back_to_digest_or_git(settings, stores, monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from bluepaper.api.app import create_app
+
+    monkeypatch.setattr("bluepaper.config._git_head", lambda: "0123456789abcdef")
+    settings.source_commit = "  "
+    settings.source_digest = "sha256:deadbeef"
+    app = TestClient(create_app(settings, stores))
+    assert app.get("/v1/source").json()["commit"] == "sha256:deadbeef"
+    settings.source_digest = None
+    app = TestClient(create_app(settings, stores))
+    assert app.get("/v1/source").json()["commit"] == "0123456789abcdef"
+
+
 def test_report_not_ready_is_409(client, sample_pdf: str) -> None:
     data = Path(sample_pdf).read_bytes()
     created = client.post(
@@ -145,6 +164,7 @@ def test_report_not_ready_is_409(client, sample_pdf: str) -> None:
     ).json()
     response = client.get(f"/v1/conversions/{created['id']}/report", headers=auth())
     assert response.status_code == 409
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_pdf_not_ready_is_409(client, sample_pdf: str) -> None:
@@ -341,6 +361,7 @@ def test_frontend_assets_are_public(client) -> None:
     assert b"/ui/vendor/signature_pad.min.mjs" in js.content
     assert b"-signed.pdf" in js.content
     assert b"cf-turnstile-response" in js.content
+    assert b"/commit/" in js.content
     assert b"0x4AAAAAAE_xSgJ6g787dvMB" in js.content
     assert b"1x00000000000000000000AA" in js.content
     assert b"Authorization" not in js.content

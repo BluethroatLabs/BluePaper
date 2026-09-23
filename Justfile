@@ -54,7 +54,9 @@ build:
     printf '%s\n' "$token" | podman login "$acr" \
       --username 00000000-0000-0000-0000-000000000000 \
       --password-stdin
+    commit="$(git rev-parse HEAD)"
     podman build --platform linux/amd64 -f Dockerfile.api \
+      --build-arg "SOURCE_COMMIT=${commit}" \
       -t "$acr/{{ api_name }}:{{ tag }}" .
     podman build --platform linux/amd64 -f Dockerfile.worker \
       -t "$acr/{{ worker_name }}:{{ tag }}" .

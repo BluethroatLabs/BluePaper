@@ -9,7 +9,9 @@ TOKEN=$(az acr login --name "${ACR%%.*}" --expose-token --output tsv --query acc
 printf '%s\n' "$TOKEN" | podman login "$ACR" \
   --username 00000000-0000-0000-0000-000000000000 \
   --password-stdin
-podman build --platform linux/amd64 -f Dockerfile.api -t "$ACR/bluepaper-api:latest" .
+podman build --platform linux/amd64 -f Dockerfile.api \
+  --build-arg "SOURCE_COMMIT=$(git rev-parse HEAD)" \
+  -t "$ACR/bluepaper-api:latest" .
 podman build --platform linux/amd64 -f Dockerfile.worker -t "$ACR/bluepaper-worker:latest" .
 podman push "$ACR/bluepaper-api:latest"
 podman push "$ACR/bluepaper-worker:latest"
@@ -52,7 +54,8 @@ az role assignment create \
 | `BLUEPAPER_MAX_CONCURRENT_JOBS` | 429 when running jobs hit this |
 | `BLUEPAPER_MAX_QUEUE_DEPTH` | 503 when the queue is full |
 | `BLUEPAPER_MAX_PIXEL_BYTES` | Cap on sandbox pixel output (default 512 MiB) |
-| `BLUEPAPER_SOURCE_URL` / `BLUEPAPER_SOURCE_COMMIT` | AGPL corresponding source (`GET /v1/source`) |
+| `BLUEPAPER_SOURCE_URL` / `BLUEPAPER_SOURCE_COMMIT` | AGPL corresponding source (`GET /v1/source`). The API image build pins `SOURCE_COMMIT` so this is not empty in production. |
+| `BLUEPAPER_SOURCE_DIGEST` | Image digest used when the git commit is unset |
 
 ## Trust split
 

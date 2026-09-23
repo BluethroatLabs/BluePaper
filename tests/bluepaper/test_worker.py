@@ -45,9 +45,11 @@ def test_dummy_convert_success_without_hits(client, stores, settings) -> None:
 
     status = client.get(f"/v1/conversions/{conversion_id}", headers=auth())
     assert status.json()["status"] == ConversionStatus.succeeded.value
+    assert status.headers["cache-control"] == "no-store"
 
     report = client.get(f"/v1/conversions/{conversion_id}/report", headers=auth())
     assert report.status_code == 200
+    assert report.headers["cache-control"] == "no-store"
     body = report.json()
     assert body["conversion_justified"] is False
     assert body["caveat"] == ZERO_HITS_CAVEAT
@@ -59,6 +61,7 @@ def test_dummy_convert_success_without_hits(client, stores, settings) -> None:
     assert pdf.status_code == 200
     assert pdf.content.startswith(b"%PDF")
     assert pdf.headers["content-type"].startswith("application/pdf")
+    assert pdf.headers["cache-control"] == "no-store"
     disposition = pdf.headers["content-disposition"]
     assert 'filename="doc-safe.pdf"' in disposition
     assert "filename*=UTF-8''doc-safe.pdf" in disposition
@@ -77,6 +80,23 @@ def test_pdf_download_name_keeps_original_stem(client, stores, settings) -> None
     assert disposition.startswith("inline;")
     assert 'filename="Quarterly Report-safe.pdf"' in disposition
     assert "filename*=UTF-8''Quarterly%20Report-safe.pdf" in disposition
+
+
+def test_quoted_filename_is_encoded_once(client, stores, settings) -> None:
+    from urllib.parse import unquote
+
+    conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n", 'say "hi".pdf')
+    assert process_one(settings, stores) is True
+    pdf = client.get(f"/v1/conversions/{conversion_id}/pdf", headers=auth())
+    assert pdf.status_code == 200
+    disposition = pdf.headers["content-disposition"]
+    assert "%2522" not in disposition
+    star = disposition.split("filename*=UTF-8''", 1)[1]
+    assert "%22" in star
+    decoded = unquote(star)
+    assert '"' in decoded
+    assert "%22" not in decoded
+    assert pdf.headers["cache-control"] == "no-store"
 
 
 def test_dummy_convert_justified_when_javascript_present(

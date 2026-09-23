@@ -161,11 +161,16 @@
         return;
       }
       const source = await response.json();
-      const commit = source.commit
-        ? ` @ ${escapeHtml(source.commit.slice(0, 7))}`
-        : "";
-      const sourceUrl = escapeHtml(source.source_url);
-      els.sourceLine.innerHTML = `<a href="/docs">API</a> · <a href="${sourceUrl}">Corresponding source${commit}</a>`;
+      const revision = source.commit ? String(source.commit).trim() : "";
+      const short = /^[0-9a-f]{7,64}$/i.test(revision)
+        ? revision.slice(0, 7)
+        : revision.slice(0, 19);
+      const label = short ? ` @ ${escapeHtml(short)}` : "";
+      const base = String(source.source_url || "").replace(/\/+$/, "");
+      const href = /^[0-9a-f]{7,64}$/i.test(revision)
+        ? `${base}/commit/${revision}`
+        : base;
+      els.sourceLine.innerHTML = `<a href="/docs">API</a> · <a href="${escapeHtml(href)}">Corresponding source${label}</a>`;
     } catch {
       /* the footer already links to the repository */
     }

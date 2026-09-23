@@ -39,7 +39,7 @@ Keep `dangerzone.conversion.doc_to_pixels` and `dangerzone.conversion.pixels_to_
 
 Do not reimplement rasterization.
 
-Dangerzone is AGPLv3. Offering BluePaper as a network service triggers the AGPL network-use terms: operators who run the API must provide corresponding source to users of that service.
+Dangerzone is AGPLv3. Offering BluePaper as a network service triggers the AGPL network-use terms: operators who run the API must provide corresponding source to users of that service. `GET /v1/source` returns `commit` set to the deployed git revision, or the image digest when the revision was not baked into the image. The console link points at that commit.
 
 ---
 

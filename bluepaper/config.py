@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 from typing import Literal
 
@@ -129,6 +130,7 @@ class Settings(BaseSettings):
     sandbox_disk_id: str | None = None
     source_url: str = "https://github.com/BluethroatLabs/BluePaper"
     source_commit: str | None = None
+    source_digest: str | None = None
     turnstile_secret: str | None = Field(
         default=None,
         validation_alias=AliasChoices("TURNSTILE_SECRET", "BLUEPAPER_TURNSTILE_SECRET"),
@@ -138,4 +140,40 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices(
             "TURNSTILE_HOSTNAMES", "BLUEPAPER_TURNSTILE_HOSTNAMES"
         ),
+    )
+
+
+def _nonempty(value: str | None) -> str | None:
+    text = (value or "").strip()
+    return text or None
+
+
+def _git_head() -> str | None:
+    """Commit of the checkout, when this process is running from a git tree."""
+    root = Path(__file__).resolve().parents[1]
+    try:
+        done = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode != 0:
+        return None
+    sha = done.stdout.strip()
+    if re.fullmatch(r"[0-9a-fA-F]{7,64}", sha):
+        return sha
+    return None
+
+
+def deployed_source_revision(settings: Settings) -> str | None:
+    """Git commit for this build, or the image digest when the commit is absent."""
+    return (
+        _nonempty(settings.source_commit)
+        or _nonempty(settings.source_digest)
+        or _git_head()
     )
