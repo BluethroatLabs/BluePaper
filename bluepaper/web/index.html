@@ -120,6 +120,9 @@
               <button type="button" class="primary" id="download-btn" hidden>
                 Download safe PDF
               </button>
+              <button type="button" class="ghost" id="sign-btn" hidden>
+                Sign
+              </button>
               <button type="button" class="ghost" id="delete-btn">
                 Delete
               </button>
@@ -145,6 +148,74 @@
       <section class="preview" id="preview" hidden>
         <p class="kicker">Preview</p>
         <p class="empty preview-status" id="preview-status">Loading preview…</p>
+        <div id="sign" hidden>
+          <p class="kicker">Sign</p>
+          <div class="sign-grid">
+            <div class="pane" id="sign-capture">
+              <div class="sign-modes" role="group" aria-label="Signature style">
+                <button
+                  type="button"
+                  id="sign-mode-draw"
+                  class="is-active"
+                  aria-pressed="true"
+                >
+                  Draw
+                </button>
+                <button
+                  type="button"
+                  id="sign-mode-type"
+                  aria-pressed="false"
+                >
+                  Type
+                </button>
+              </div>
+              <div id="sign-draw">
+                <canvas
+                  id="sign-pad"
+                  class="sign-pad"
+                  aria-label="Draw a signature"
+                ></canvas>
+              </div>
+              <div id="sign-type" hidden>
+                <label class="sign-field" for="sign-name">
+                  <span>Name</span>
+                  <input
+                    id="sign-name"
+                    type="text"
+                    maxlength="80"
+                    autocomplete="name"
+                    spellcheck="false"
+                    placeholder="Your name"
+                  />
+                </label>
+              </div>
+              <div class="job-actions">
+                <button type="button" class="ghost" id="sign-clear">
+                  Clear signature
+                </button>
+              </div>
+              <p class="hint">
+                A visual mark on the safe PDF. Not a cryptographic signature.
+                The stored file stays unchanged.
+              </p>
+            </div>
+            <div class="pane" id="sign-place">
+              <p class="sign-lead">Place it on the page.</p>
+              <p class="empty" id="sign-status">
+                Draw or type a signature, then click a page in the preview.
+              </p>
+              <p class="error-line" id="sign-error" hidden></p>
+              <div class="job-actions">
+                <button type="button" class="ghost" id="sign-clear-marks" disabled>
+                  Clear marks
+                </button>
+                <button type="button" class="primary" id="sign-download" disabled>
+                  Download signed PDF
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div id="pdf-pages" hidden></div>
       </section>
 

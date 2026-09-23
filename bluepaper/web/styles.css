@@ -495,6 +495,102 @@ select {
   border-bottom: 1px solid var(--border);
 }
 
+.sign-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+#sign .pane {
+  min-height: 0;
+}
+
+#sign-place {
+  display: flex;
+  flex-direction: column;
+}
+
+#sign-place .job-actions {
+  margin-top: auto;
+}
+
+.sign-lead {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.sign-modes {
+  display: flex;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+}
+
+.sign-modes button {
+  flex: 1;
+  min-height: 2.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sign-modes button + button {
+  border-left: 1px solid var(--border);
+}
+
+.sign-modes button.is-active {
+  background: var(--foreground);
+  color: var(--primary-foreground);
+}
+
+.sign-modes button:hover:not(.is-active) {
+  background: var(--muted);
+}
+
+.sign-pad {
+  display: block;
+  width: 100%;
+  height: 7.5rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.sign-field {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.sign-field span {
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#sign-name {
+  width: 100%;
+  height: 7.5rem;
+  padding: 0 1rem;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: #141414;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 2.75rem;
+  line-height: 7.5rem;
+}
+
+#sign-name::placeholder {
+  color: #b5b5b5;
+}
+
+#sign-capture .hint {
+  margin: 0.75rem 0 0;
+}
+
 .preview-status {
   margin: 0;
   padding: 1.5rem;
@@ -510,10 +606,37 @@ select {
   background: #1a1a1a;
 }
 
+.pdf-page {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  background: #fff;
+  line-height: 0;
+  text-align: left;
+}
+
 #pdf-pages canvas {
+  display: block;
   width: 100%;
   height: auto;
   background: white;
+}
+
+.sign-mark {
+  position: absolute;
+  height: auto;
+  pointer-events: none;
+}
+
+#pdf-pages.is-placing .pdf-page {
+  cursor: crosshair;
+}
+
+#pdf-pages.is-placing .pdf-page:hover {
+  outline: 1px solid #141414;
+  outline-offset: -1px;
 }
 
 .report-banner {
@@ -646,7 +769,8 @@ select {
   }
 
   .work,
-  .contract {
+  .contract,
+  .sign-grid {
     grid-template-columns: 1fr;
   }
 

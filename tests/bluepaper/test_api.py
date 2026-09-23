@@ -310,6 +310,9 @@ def test_frontend_is_public(client) -> None:
     assert b"turnstile-widget" in response.content
     assert b'id="pdf-pages"' in response.content
     assert b'id="job-file"' in response.content
+    assert b'id="sign"' in response.content
+    assert b'id="sign-pad"' in response.content
+    assert b'id="sign-download"' in response.content
     assert b"challenges.cloudflare.com/turnstile" in response.content
     assert b"api-key" not in response.content
     assert b"API key" not in response.content
@@ -329,11 +332,26 @@ def test_frontend_assets_are_public(client) -> None:
     assert b'link.download = "safe.pdf"' not in js.content
     assert b"pdf-pages" in js.content
     assert b"/ui/vendor/pdf.min.mjs" in js.content
+    assert b"/ui/vendor/pdf-lib.esm.min.mjs" in js.content
+    assert b"/ui/vendor/signature_pad.min.mjs" in js.content
+    assert b"-signed.pdf" in js.content
     assert b"cf-turnstile-response" in js.content
     assert b"0x4AAAAAAE_xSgJ6g787dvMB" in js.content
     assert b"1x00000000000000000000AA" in js.content
     assert b"Authorization" not in js.content
     assert b"api-key" not in js.content
+
+
+def test_sign_libraries_are_public(client) -> None:
+    pdf_lib = client.get("/ui/vendor/pdf-lib.esm.min.mjs")
+    pad = client.get("/ui/vendor/signature_pad.min.mjs")
+    assert pdf_lib.status_code == 200
+    assert "javascript" in pdf_lib.headers["content-type"]
+    assert b"PDFDocument" in pdf_lib.content
+    assert b"Andrew Dillon" in pdf_lib.content
+    assert pad.status_code == 200
+    assert "javascript" in pad.headers["content-type"]
+    assert b"Signature Pad" in pad.content
 
 
 def test_pdfjs_preview_assets_are_public(client) -> None:
