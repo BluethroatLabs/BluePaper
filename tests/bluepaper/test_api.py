@@ -473,6 +473,24 @@ def test_frontend_assets_are_public(client) -> None:
     assert b"api-key" not in js.content
 
 
+def test_legal_pages_and_brand_assets_are_served(client) -> None:
+    for path, title in (("/privacy", "Privacy"), ("/terms", "Terms"), ("/support", "Support")):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert f"<title>{title} — BluePaper</title>" in response.text
+        assert "{{BODY}}" not in response.text
+        assert 'href="/ui/styles.css"' in response.text
+
+    privacy = client.get("/privacy").text
+    assert "does not remove the original hash-addressed upload" in privacy
+    assert client.get("/not-a-legal-page").status_code == 404
+
+    manifest = client.get("/ui/site.webmanifest").json()
+    assert manifest["icons"][0]["src"].startswith("/ui/")
+    assert client.get("/ui/assets/bluethroat-wordmark.svg").status_code == 200
+    assert client.get("/ui/theme.js").status_code == 200
+
+
 def test_sign_libraries_are_public(client) -> None:
     pdf_lib = client.get("/ui/vendor/pdf-lib.esm.min.mjs")
     pad = client.get("/ui/vendor/signature_pad.min.mjs")

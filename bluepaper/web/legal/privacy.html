@@ -1,0 +1,13 @@
+<p>BluePaper is a hosted document conversion service. When you choose a file and queue a conversion, its bytes leave your device. This notice explains the processing visible in the current service implementation.</p>
+
+<h3>Uploads and conversion</h3>
+<p>The service calculates a SHA-256 hash and stores the original upload in blob storage under that hash. It records the file name, size, hash, job status, and timestamps. A worker reads the upload, scans its raw bytes for selected indicators, and sends it to a disposable conversion sandbox. The sandbox is deleted after the job. The service stores the rebuilt PDF and a JSON report for retrieval.</p>
+<p>Optional OCR is performed during conversion. The report contains matched byte indicators; it is not a malware verdict.</p>
+
+<h3>Access and deletion</h3>
+<p>Browser conversions use Cloudflare Turnstile. Anyone who has a browser conversion ID can use it to retrieve that conversion’s status, report, and PDF, or request deletion. Treat the ID as a secret and avoid sharing it.</p>
+<p>Deleting a finished conversion removes its generated PDF, report, and job record. <strong>The current delete endpoint does not remove the original hash-addressed upload.</strong> Cancelling a queued or running job changes its status; it does not immediately erase all stored data. No automatic retention period is promised here.</p>
+
+<h3>Other services and links</h3>
+<p>The hosted page connects to its host. The browser also contacts Cloudflare for the Turnstile challenge, and the optional font assets are served with this site. Following links to GitHub or Bluethroat Labs opens those separate sites.</p>
+<p>Do not upload a document whose storage under these conditions you cannot accept. For questions or a data concern, see <a href="/support">Support</a>.</p>

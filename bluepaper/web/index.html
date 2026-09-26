@@ -3,65 +3,54 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0a0a0a" />
     <meta
       name="description"
       content="BluePaper rebuilds untrusted documents from pixels. Safety comes from destruction, not detection."
     />
     <title>BluePaper — Bluethroat Labs</title>
+    <link rel="icon" href="/ui/favicon-96x96.png" sizes="96x96" type="image/png" />
     <link rel="icon" href="/ui/favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400;600&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="shortcut icon" href="/ui/favicon.ico" />
+    <link rel="apple-touch-icon" href="/ui/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/ui/site.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="BluePaper" />
+    <script src="/ui/theme-boot.js"></script>
     <link rel="stylesheet" href="/ui/styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#content">Skip to content</a>
     <div class="frame">
-      <header class="nav">
-        <a class="brand" href="/" aria-label="BluePaper home">
-          <span class="brand-name">BluePaper</span>
+      <header class="topbar">
+        <a class="brand" href="https://bluethroatlabs.com/" target="_blank" rel="noopener noreferrer" aria-label="Bluethroat Labs website">
+          <img src="/ui/assets/bluethroat-wordmark.svg" alt="Bluethroat Labs" width="198" height="32" />
         </a>
-        <nav class="nav-links" aria-label="Primary">
-          <a class="nav-link" href="#convert">Convert</a>
-          <a class="nav-link" href="#contract">The contract</a>
+        <nav class="top-actions" aria-label="Main navigation">
+          <button type="button" data-open-about>About</button>
+          <a href="#contract">How it works</a>
+          <button id="theme" type="button" aria-label="Switch to light appearance" title="Switch to light appearance">
+            <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>
+            <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1a9 9 0 1 0 10 10Z"/></svg>
+          </button>
         </nav>
-        <a
-          class="nav-icon"
-          href="https://github.com/BluethroatLabs/BluePaper"
-          title="GitHub"
-          aria-label="BluePaper on GitHub"
-        >
-          <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"
-            />
-          </svg>
-        </a>
       </header>
-
-      <section class="hero" aria-labelledby="hero-title">
-        <div class="hero-texture" aria-hidden="true"></div>
-        <h1 id="hero-title">
-          Rebuild
-          <span>from pixels</span>
-        </h1>
-        <div class="hero-caption">
-          <p>
-            Upload an untrusted document. Receive a PDF rebuilt from pixels,
-            plus a regexp report on the original bytes.
-          </p>
-          <p>
-            Safety comes from <em>destruction</em>, not detection. Zero regexp
-            hits is not “clean.”
-          </p>
+      <main id="content">
+      <section class="intro" aria-labelledby="product-title">
+        <div class="intro-inner">
+          <a class="product-lockup" href="#convert" aria-label="BluePaper converter">
+            <span class="product-mark" aria-hidden="true"><img src="/ui/favicon-96x96.png" alt="" width="88" height="88" /></span>
+            <h1 id="product-title">BluePaper</h1>
+          </a>
+          <div class="intro-copy">
+            <p>Rebuild from pixels</p>
+            <p>Turn an untrusted document into a PDF rebuilt from pixels.</p>
+            <!-- <p>Upload, convert, review the byte-indicator report, then download or sign the rebuilt PDF.</p> -->
+          </div>
         </div>
       </section>
 
-      <p class="kicker" id="convert">Convert</p>
+      <div class="section-bar" id="convert"><h2>Convert a document</h2><span>Upload → rebuild → review</span></div>
 
       <section class="work" aria-labelledby="convert">
         <div class="pane" id="submit-pane">
@@ -219,7 +208,7 @@
         <div id="pdf-pages" hidden></div>
       </section>
 
-      <p class="kicker" id="contract">The contract</p>
+      <div class="section-bar" id="contract"><h2>How it works</h2><span>Safety comes from destruction, not detection.</span></div>
 
       <section class="contract" aria-labelledby="contract">
         <div class="stat">
@@ -244,20 +233,45 @@
         </div>
       </section>
 
-      <footer class="footer">
-        <p>Bluethroat Labs · AGPL-3.0</p>
-        <p id="source-line">
-          <a href="/docs">API</a>
-          ·
-          <a href="https://github.com/BluethroatLabs/BluePaper">Corresponding source</a>
-        </p>
+      </main>
+      <footer class="page-footer">
+        <div class="footer-brand"><span>A document tool by</span><a href="https://bluethroatlabs.com/" target="_blank" rel="noopener noreferrer"><img src="/ui/assets/bluethroat-wordmark.svg" alt="Bluethroat Labs" width="124" height="20" /></a></div>
+        <nav class="footer-links" aria-label="Policies and support">
+          <a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/support">Support</a><a href="/docs">API</a><a id="source-link" href="https://github.com/BluethroatLabs/BluePaper">Corresponding source</a>
+        </nav>
       </footer>
     </div>
+    <dialog id="about-dialog" class="scroll-dialog" aria-labelledby="about-title">
+      <div class="scroll-toolbar"><button type="button" data-close-about aria-label="Close About BluePaper">×</button></div>
+      <article class="paper-scroll">
+        <header class="scroll-header"><h2 id="about-title">About BluePaper</h2><p>Open the original only inside a disposable conversion sandbox. Bring back pixels, then build a new PDF.</p></header>
+        <div class="scroll-copy">
+          <details>
+            <summary>What happens to a document?</summary>
+            <p>BluePaper hashes and stores the upload, scans its raw bytes for selected indicators, and sends it to an isolated sandbox for conversion. The trusted worker builds a new PDF from the returned pixels. Optional OCR adds searchable text.</p>
+          </details>
+          <details>
+            <summary>What does the report mean?</summary>
+            <p>A hit identifies a byte pattern in the original. A hit does not mean that construct was present. Absence of patterns is not a malware verdict. Conversion runs either way.</p>
+          </details>
+          <details>
+            <summary>Can I sign the output?</summary>
+            <p>Yes. Place a visual signature on the rebuilt PDF and download a signed copy. This is not a cryptographic signature; the stored PDF stays unchanged.</p>
+          </details>
+          <details>
+            <summary>Where does my file go?</summary>
+            <p>This is a hosted service: your document is uploaded for processing. Read the <a href="/privacy">privacy notice</a> for storage and deletion details before sending sensitive material.</p>
+          </details>
+        </div>
+        <footer class="scroll-footer">BluePaper by Bluethroat Labs · AGPL-3.0</footer>
+      </article>
+    </dialog>
     <noscript>
       <p class="noscript">
         BluePaper’s operator console needs JavaScript to call the conversion API.
       </p>
     </noscript>
+    <script src="/ui/theme.js" defer></script>
     <script src="/ui/app.js" defer></script>
     <script
       src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=bluepaperTurnstile&render=explicit"
