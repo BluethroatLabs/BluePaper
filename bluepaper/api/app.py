@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import Response as StarletteResponse
@@ -118,10 +118,31 @@ def create_app(
 
     if WEB_DIR.is_dir():
         index = WEB_DIR / "index.html"
+        legal_template = WEB_DIR / "legal.html"
+        legal_pages = {
+            "privacy": ("Privacy", "How BluePaper handles uploaded documents and conversion artifacts."),
+            "terms": ("Terms", "Terms of use and limitations for BluePaper."),
+            "support": ("Support", "How to report BluePaper issues and get help."),
+        }
 
         @application.get("/", include_in_schema=False)
         def frontend_index() -> FileResponse:
             return FileResponse(index, media_type="text/html")
+
+        @application.get("/privacy", include_in_schema=False, response_class=HTMLResponse)
+        @application.get("/terms", include_in_schema=False, response_class=HTMLResponse)
+        @application.get("/support", include_in_schema=False, response_class=HTMLResponse)
+        def frontend_legal(request: Request) -> HTMLResponse:
+            page_name = request.url.path.lstrip("/")
+            title, description = legal_pages[page_name]
+            body = (WEB_DIR / "legal" / f"{page_name}.html").read_text()
+            html = (
+                legal_template.read_text()
+                .replace("{{TITLE}}", title)
+                .replace("{{DESCRIPTION}}", description)
+                .replace("{{BODY}}", body)
+            )
+            return HTMLResponse(html)
 
         application.mount("/ui", StaticFiles(directory=WEB_DIR), name="ui")
 
