@@ -18,7 +18,7 @@ bearer_scheme = HTTPBearer(
 
 
 def get_settings(request: Request) -> Settings:
-    return request.app.state.settings  # type: ignore[no-any-return]
+    return request.app.state.settings
 
 
 def _unauthorized() -> HTTPException:

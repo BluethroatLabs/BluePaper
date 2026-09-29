@@ -83,7 +83,7 @@ sequenceDiagram
 
 ### Authentication and tenancy
 
-Integrators send `Authorization: Bearer <api-key>` on conversion routes. The console at `/` never sends that key. `POST /v1/conversions` accepts a completed Cloudflare Turnstile token instead (`cf-turnstile-response`). A conversion queued that way is readable and deletable by anyone who has its id. Conversions queued with an API key still require the key; a valid key does not require Turnstile. `GET /v1/source`, `/`, `/ui`, `/healthz`, `/openapi.json`, `/docs`, and `/redoc` do not require a key. v1 is a **single-tenant** REST API in the operator’s Azure subscription. Samples stay in that tenant. This is not a public multi-tenant SaaS.
+Integrators send `Authorization: Bearer <api-key>` on conversion routes. The console at `/` never sends that key. `POST /v1/conversions` accepts a completed Cloudflare Turnstile token instead (`cf-turnstile-response`). A conversion queued that way is readable and deletable by anyone who has its id. Conversions queued with an API key still require the key; a valid key does not require Turnstile. `GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`, `/for-agents`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/healthz`, `/openapi.json`, `/docs`, and `/redoc` do not require a key. v1 is a **single-tenant** REST API in the operator’s Azure subscription. Samples stay in that tenant. This is not a public multi-tenant SaaS.
 
 ### Pinning
 

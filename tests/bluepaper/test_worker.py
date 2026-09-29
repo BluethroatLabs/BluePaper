@@ -1,11 +1,16 @@
 import threading
 from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
 
 from bluepaper.config import (
     FAILED_HITS_CAVEAT,
     FAILED_NO_HITS_CAVEAT,
     HITS_CAVEAT,
     ZERO_HITS_CAVEAT,
+    Settings,
     original_blob_key,
     report_blob_key,
 )
@@ -13,6 +18,7 @@ from bluepaper.isolation.aca import AcaIsolationProvider
 from bluepaper.isolation.dummy import InProcessDummy
 from bluepaper.models import ConversionRecord, ConversionStatus, utc_now
 from bluepaper.scan.scanner import ScanTimeout
+from bluepaper.storage.base import Stores
 from bluepaper.worker.job import (
     _update_stage,
     get_isolation,
@@ -23,13 +29,15 @@ from tests.bluepaper.conftest import auth
 
 
 class FailingIsolation:
-    def convert(self, document, ocr_lang, progress_callback=None) -> None:
+    def convert(
+        self, document: Any, ocr_lang: str | None, progress_callback: object = None
+    ) -> None:
         document.mark_as_converting()
         document.mark_as_failed()
 
 
 def _submit(
-    client,
+    client: TestClient,
     data: bytes,
     name: str = "doc.pdf",
     ocr_lang: str | None = None,
@@ -45,7 +53,9 @@ def _submit(
     return response.json()["id"]
 
 
-def test_dummy_convert_success_without_hits(client, stores, settings) -> None:
+def test_dummy_convert_success_without_hits(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     data = b"%PDF-1.4\nplain text document\n"
     conversion_id = _submit(client, data)
     assert process_one(settings, stores) is True
@@ -74,7 +84,9 @@ def test_dummy_convert_success_without_hits(client, stores, settings) -> None:
     assert "filename*=UTF-8''doc-safe.pdf" in disposition
 
 
-def test_pdf_download_name_keeps_original_stem(client, stores, settings) -> None:
+def test_pdf_download_name_keeps_original_stem(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     conversion_id = _submit(
         client,
         b"%PDF-1.4\nplain text document\n",
@@ -89,7 +101,9 @@ def test_pdf_download_name_keeps_original_stem(client, stores, settings) -> None
     assert "filename*=UTF-8''Quarterly%20Report-safe.pdf" in disposition
 
 
-def test_quoted_filename_is_encoded_once(client, stores, settings) -> None:
+def test_quoted_filename_is_encoded_once(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     from urllib.parse import unquote
 
     conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n", 'say "hi".pdf')
@@ -107,7 +121,7 @@ def test_quoted_filename_is_encoded_once(client, stores, settings) -> None:
 
 
 def test_dummy_convert_justified_when_javascript_present(
-    client, stores, settings
+    client: TestClient, stores: Stores, settings: Settings
 ) -> None:
     data = b"%PDF-1.4\n<< /OpenAction 1 0 R /JavaScript 2 0 R >>\n"
     conversion_id = _submit(client, data)
@@ -121,7 +135,9 @@ def test_dummy_convert_justified_when_javascript_present(
     assert "pdf.javascript" in hit_ids
 
 
-def test_failed_convert_still_returns_report(client, stores, settings) -> None:
+def test_failed_convert_still_returns_report(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     data = b"%PDF-1.4\n/Launch /JavaScript\n"
     conversion_id = _submit(client, data)
     assert process_one(settings, stores, FailingIsolation()) is True
@@ -147,7 +163,7 @@ def test_failed_convert_still_returns_report(client, stores, settings) -> None:
 
 
 def test_failed_convert_without_hits_does_not_claim_pixel_rebuild(
-    client, stores, settings
+    client: TestClient, stores: Stores, settings: Settings
 ) -> None:
     data = b"%PDF-1.4\nplain text document\n"
     conversion_id = _submit(client, data, "empty.pdf")
@@ -166,9 +182,13 @@ def test_failed_convert_without_hits_does_not_claim_pixel_rebuild(
     assert body["conversion"]["output_bytes"] is None
 
 
-def test_failed_ocr_does_not_claim_pixel_rebuild(client, stores, settings) -> None:
+def test_failed_ocr_does_not_claim_pixel_rebuild(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     class OcrFailIsolation:
-        def convert(self, document, ocr_lang, progress_callback=None) -> None:
+        def convert(
+            self, document: Any, ocr_lang: str | None, progress_callback: object = None
+        ) -> None:
             document.mark_as_converting()
             document.mark_as_failed()
             raise RuntimeError("code=3: Tesseract language initialisation failed")
@@ -202,10 +222,12 @@ def test_failed_ocr_does_not_claim_pixel_rebuild(client, stores, settings) -> No
 
 
 def test_failed_ocr_with_hits_keeps_indicators_informational(
-    client, stores, settings
+    client: TestClient, stores: Stores, settings: Settings
 ) -> None:
     class OcrFailIsolation:
-        def convert(self, document, ocr_lang, progress_callback=None) -> None:
+        def convert(
+            self, document: Any, ocr_lang: str | None, progress_callback: object = None
+        ) -> None:
             document.mark_as_failed()
             raise RuntimeError("code=3: Tesseract language initialisation failed")
 
@@ -229,7 +251,9 @@ def test_failed_ocr_with_hits_keeps_indicators_informational(
     assert pdf.status_code == 409
 
 
-def test_cancel_queued_job(client, stores, settings, sample_pdf: str) -> None:
+def test_cancel_queued_job(
+    client: TestClient, stores: Stores, settings: Settings, sample_pdf: str
+) -> None:
     data = Path(sample_pdf).read_bytes()
     conversion_id = _submit(client, data, "sample.pdf")
     deleted = client.delete(f"/v1/conversions/{conversion_id}", headers=auth())
@@ -241,7 +265,9 @@ def test_cancel_queued_job(client, stores, settings, sample_pdf: str) -> None:
     assert status["status"] == ConversionStatus.cancelled.value
 
 
-def test_delete_succeeded_removes_row(client, stores, settings) -> None:
+def test_delete_succeeded_removes_row(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
     assert process_one(settings, stores) is True
     deleted = client.delete(f"/v1/conversions/{conversion_id}", headers=auth())
@@ -252,17 +278,19 @@ def test_delete_succeeded_removes_row(client, stores, settings) -> None:
     )
 
 
-def test_empty_queue_returns_false(settings, stores) -> None:
+def test_empty_queue_returns_false(settings: Settings, stores: Stores) -> None:
     assert process_one(settings, stores) is False
 
 
-def test_missing_record_completes_lease(settings, stores) -> None:
+def test_missing_record_completes_lease(settings: Settings, stores: Stores) -> None:
     stores.queue.enqueue("cnv_missing")
     assert process_one(settings, stores) is True
     assert stores.queue.lease(1) is None
 
 
-def test_finished_job_is_not_rerun(client, stores, settings) -> None:
+def test_finished_job_is_not_rerun(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
     record = stores.table.get(conversion_id)
     assert record is not None
@@ -276,7 +304,9 @@ def test_finished_job_is_not_rerun(client, stores, settings) -> None:
     assert stores.queue.lease(1) is None
 
 
-def test_poisoned_queue_message(client, stores, settings) -> None:
+def test_poisoned_queue_message(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     settings.max_dequeues = 0
     conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
     assert process_one(settings, stores) is True
@@ -285,7 +315,9 @@ def test_poisoned_queue_message(client, stores, settings) -> None:
     assert status["error"] == "poisoned queue message"
 
 
-def test_missing_original_blob(client, stores, settings) -> None:
+def test_missing_original_blob(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
     record = stores.table.get(conversion_id)
     assert record is not None
@@ -296,8 +328,13 @@ def test_missing_original_blob(client, stores, settings) -> None:
     assert status["error"] == "original blob missing"
 
 
-def test_scan_timeout_still_converts(client, stores, settings, monkeypatch) -> None:
-    def boom(*args, **kwargs):
+def test_scan_timeout_still_converts(
+    client: TestClient,
+    stores: Stores,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
         raise ScanTimeout()
 
     monkeypatch.setattr("bluepaper.worker.job.scan_bytes", boom)
@@ -313,7 +350,7 @@ def test_scan_timeout_still_converts(client, stores, settings, monkeypatch) -> N
 
 def test_public_conversion_error_hides_azure_class_names() -> None:
     class HttpResponseError(Exception):
-        pass
+        error: object | None = None
 
     disk = HttpResponseError(
         "(DiskImageNotFound) Disk image with name 'python' not found"
@@ -329,9 +366,13 @@ def test_public_conversion_error_hides_azure_class_names() -> None:
     assert public_conversion_error(ValueError("pages overflow")) == "pages overflow"
 
 
-def test_isolation_exception_name_is_recorded(client, stores, settings) -> None:
+def test_isolation_exception_name_is_recorded(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     class BoomIsolation:
-        def convert(self, document, ocr_lang, progress_callback=None) -> None:
+        def convert(
+            self, document: Any, ocr_lang: str | None, progress_callback: object = None
+        ) -> None:
             raise ValueError("sandbox exploded")
 
     conversion_id = _submit(client, b"%PDF-1.4\n/JavaScript\n")
@@ -341,13 +382,17 @@ def test_isolation_exception_name_is_recorded(client, stores, settings) -> None:
     assert status["error"] == "sandbox exploded"
 
 
-def test_cancel_during_convert_keeps_cancelled(client, stores, settings) -> None:
+def test_cancel_during_convert_keeps_cancelled(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     class BlockingIsolation:
         def __init__(self) -> None:
             self.started = threading.Event()
             self.release = threading.Event()
 
-        def convert(self, document, ocr_lang, progress_callback=None) -> None:
+        def convert(
+            self, document: Any, ocr_lang: str | None, progress_callback: object = None
+        ) -> None:
             document.mark_as_converting()
             self.started.set()
             assert self.release.wait(timeout=5)
@@ -368,7 +413,7 @@ def test_cancel_during_convert_keeps_cancelled(client, stores, settings) -> None
     assert status["status"] == ConversionStatus.cancelled.value
 
 
-def test_get_isolation_dummy_and_aca(settings) -> None:
+def test_get_isolation_dummy_and_aca(settings: Settings) -> None:
     settings.isolation = "dummy"
     assert isinstance(get_isolation(settings), InProcessDummy)
     settings.isolation = "aca"
@@ -377,7 +422,7 @@ def test_get_isolation_dummy_and_aca(settings) -> None:
     assert provider.max_pixel_bytes == settings.max_pixel_bytes
 
 
-def test_update_stage_pixels_to_pdf(stores) -> None:
+def test_update_stage_pixels_to_pdf(stores: Stores) -> None:
     record = ConversionRecord(
         id="cnv_stage",
         status=ConversionStatus.running,
@@ -387,12 +432,16 @@ def test_update_stage_pixels_to_pdf(stores) -> None:
     )
     stores.table.create(record)
     _update_stage(stores, record.id, "Converted page 1/2 to PDF")
-    assert stores.table.get(record.id).stage == "pixels_to_pdf"
+    updated = stores.table.get(record.id)
+    assert updated is not None
+    assert updated.stage == "pixels_to_pdf"
     _update_stage(stores, record.id, "Converted page 1/2 to searchable PDF")
-    assert stores.table.get(record.id).stage == "pixels_to_pdf"
+    updated = stores.table.get(record.id)
+    assert updated is not None
+    assert updated.stage == "pixels_to_pdf"
 
 
-def test_update_stage_ignores_non_running(stores) -> None:
+def test_update_stage_ignores_non_running(stores: Stores) -> None:
     record = ConversionRecord(
         id="cnv_queued_stage",
         status=ConversionStatus.queued,
@@ -402,10 +451,14 @@ def test_update_stage_ignores_non_running(stores) -> None:
     )
     stores.table.create(record)
     _update_stage(stores, record.id, "Converted page 1/2 to PDF")
-    assert stores.table.get(record.id).stage is None
+    updated = stores.table.get(record.id)
+    assert updated is not None
+    assert updated.stage is None
 
 
-def test_report_missing_blob_is_409(client, stores, settings) -> None:
+def test_report_missing_blob_is_409(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
     assert process_one(settings, stores) is True
     stores.blobs.delete(report_blob_key(conversion_id))

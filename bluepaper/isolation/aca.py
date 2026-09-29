@@ -5,13 +5,12 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import IO
-
-from dangerzone.document import Document
-from dangerzone.isolation_provider.base import IsolationProvider
+from typing import IO, Any
 
 from bluepaper.config import Settings
 from bluepaper.isolation.session import CONVERT_WRAPPER, SandboxSession
+from dangerzone.document import Document
+from dangerzone.isolation_provider.base import IsolationProvider
 
 log = logging.getLogger("bluepaper.isolation.aca")
 
@@ -111,7 +110,10 @@ class AcaIsolationProvider(IsolationProvider):
         payload = sandbox.read_file(_PIXELS)
         if isinstance(payload, str):
             payload = payload.encode("latin1")
-        tmp = tempfile.SpooledTemporaryFile(max_size=min(size, 32 * 1024 * 1024))
+        # The caller closes this stream (`with self._open_pixels(...)`).
+        tmp = tempfile.SpooledTemporaryFile(  # noqa: SIM115
+            max_size=min(size, 32 * 1024 * 1024)
+        )
         tmp.write(payload)
         tmp.seek(0)
         return tmp
@@ -128,7 +130,7 @@ def _connect_and_create(settings: Settings) -> SandboxSession:
     from azure.identity import DefaultAzureCredential
 
     try:
-        from azure.containerapps.sandbox import (  # type: ignore[import-untyped]
+        from azure.containerapps.sandbox import (
             EgressPolicy,
             SandboxGroupClient,
             endpoint_for_region,
@@ -153,7 +155,7 @@ def _connect_and_create(settings: Settings) -> SandboxSession:
         "disk_id": settings.sandbox_disk_id,
     }
     sandbox = client.begin_create_sandbox(**create_kwargs).result()
-    return sandbox  # type: ignore[no-any-return]
+    return sandbox
 
 
 def _exec_text(payload: bytes | str | None) -> str:
@@ -164,7 +166,7 @@ def _exec_text(payload: bytes | str | None) -> str:
     return payload
 
 
-def _deny_all_egress(egress_policy_cls: type) -> object:
+def _deny_all_egress(egress_policy_cls: type) -> Any:
     try:
         return egress_policy_cls(
             default_action="Deny",

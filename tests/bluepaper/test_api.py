@@ -1,17 +1,24 @@
 import json
 from pathlib import Path
 
+import pytest
+from fastapi.testclient import TestClient
+
 from bluepaper.config import (
     FAILED_HITS_CAVEAT,
     FAILED_NO_HITS_CAVEAT,
     ZERO_HITS_CAVEAT,
+    Settings,
     report_blob_key,
 )
 from bluepaper.models import ConversionRecord, ConversionStatus, utc_now
+from bluepaper.storage.base import Stores
 from tests.bluepaper.conftest import auth
 
 
-def _store_failed_report(stores, record: ConversionRecord, body: dict) -> None:
+def _store_failed_report(
+    stores: Stores, record: ConversionRecord, body: dict[str, object]
+) -> None:
     stores.table.create(record)
     stores.blobs.put(
         report_blob_key(record.id),
@@ -20,7 +27,9 @@ def _store_failed_report(stores, record: ConversionRecord, body: dict) -> None:
     )
 
 
-def test_served_failed_report_drops_pixel_rebuild_claim(client, stores) -> None:
+def test_served_failed_report_drops_pixel_rebuild_claim(
+    client: TestClient, stores: Stores
+) -> None:
     record = ConversionRecord(
         id="cnv_french_ocr",
         status=ConversionStatus.failed,
@@ -67,7 +76,7 @@ def test_served_failed_report_drops_pixel_rebuild_claim(client, stores) -> None:
 
 
 def test_served_failed_report_does_not_claim_indicators_were_stripped(
-    client, stores
+    client: TestClient, stores: Stores
 ) -> None:
     record = ConversionRecord(
         id="cnv_html_pdf",
@@ -107,13 +116,13 @@ def test_served_failed_report_does_not_claim_indicators_were_stripped(
     assert body["conversion"]["output_bytes"] is None
 
 
-def test_healthz_needs_no_auth(client) -> None:
+def test_healthz_needs_no_auth(client: TestClient) -> None:
     response = client.get("/healthz")
     assert response.status_code == 200
     assert response.headers.get("cache-control") != "no-store"
 
 
-def test_openapi_is_public_and_documents_bearer_auth(client) -> None:
+def test_openapi_is_public_and_documents_bearer_auth(client: TestClient) -> None:
     docs = client.get("/docs")
     assert docs.status_code == 200
     spec = client.get("/openapi.json")
@@ -142,7 +151,7 @@ def test_openapi_is_public_and_documents_bearer_auth(client) -> None:
     assert "security" not in paths["/v1/source"]["get"]
 
 
-def test_missing_key_is_401(client) -> None:
+def test_missing_key_is_401(client: TestClient) -> None:
     response = client.post("/v1/conversions")
     assert response.status_code == 401
     document = client.get("/v1/conversions/cnv_missing")
@@ -150,7 +159,7 @@ def test_missing_key_is_401(client) -> None:
     assert document.headers["cache-control"] == "no-store"
 
 
-def test_wrong_key_is_401(client) -> None:
+def test_wrong_key_is_401(client: TestClient) -> None:
     response = client.post(
         "/v1/conversions",
         headers=auth("nope"),
@@ -159,7 +168,7 @@ def test_wrong_key_is_401(client) -> None:
     assert response.status_code == 401
 
 
-def test_unsupported_type_is_415(client) -> None:
+def test_unsupported_type_is_415(client: TestClient) -> None:
     response = client.post(
         "/v1/conversions",
         headers=auth(),
@@ -168,7 +177,9 @@ def test_unsupported_type_is_415(client) -> None:
     assert response.status_code == 415
 
 
-def test_too_large_is_413(client, settings, stores) -> None:
+def test_too_large_is_413(
+    client: TestClient, settings: Settings, stores: Stores
+) -> None:
     settings.max_upload_bytes = 8
     from fastapi.testclient import TestClient
 
@@ -183,7 +194,7 @@ def test_too_large_is_413(client, settings, stores) -> None:
     assert response.status_code == 413
 
 
-def test_submit_returns_202(client, sample_pdf: str) -> None:
+def test_submit_returns_202(client: TestClient, sample_pdf: str) -> None:
     data = Path(sample_pdf).read_bytes()
     response = client.post(
         "/v1/conversions",
@@ -202,12 +213,14 @@ def test_submit_returns_202(client, sample_pdf: str) -> None:
     assert status.json()["status"] == "queued"
 
 
-def test_unknown_conversion_is_404(client) -> None:
+def test_unknown_conversion_is_404(client: TestClient) -> None:
     response = client.get("/v1/conversions/cnv_01J8Z3K4N5P6Q7R8S9T0", headers=auth())
     assert response.status_code == 404
 
 
-def test_queue_saturated_is_503(client, stores, settings) -> None:
+def test_queue_saturated_is_503(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     for i in range(settings.max_queue_depth):
         stores.queue.enqueue(f"cnv_filler_{i}")
     response = client.post(
@@ -218,7 +231,7 @@ def test_queue_saturated_is_503(client, stores, settings) -> None:
     assert response.status_code == 503
 
 
-def test_concurrency_limit_is_429(client, stores) -> None:
+def test_concurrency_limit_is_429(client: TestClient, stores: Stores) -> None:
     for i in range(2):
         stores.table.create(
             ConversionRecord(
@@ -237,13 +250,15 @@ def test_concurrency_limit_is_429(client, stores) -> None:
     assert response.status_code == 429
 
 
-def test_source_is_public(client) -> None:
+def test_source_is_public(client: TestClient) -> None:
     response = client.get("/v1/source")
     assert response.status_code == 200
     assert response.json()["license"] == "AGPL-3.0"
 
 
-def test_source_falls_back_to_digest_or_git(settings, stores, monkeypatch) -> None:
+def test_source_falls_back_to_digest_or_git(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from fastapi.testclient import TestClient
 
     from bluepaper.api.app import create_app
@@ -258,7 +273,7 @@ def test_source_falls_back_to_digest_or_git(settings, stores, monkeypatch) -> No
     assert app.get("/v1/source").json()["commit"] == "0123456789abcdef"
 
 
-def test_report_not_ready_is_409(client, sample_pdf: str) -> None:
+def test_report_not_ready_is_409(client: TestClient, sample_pdf: str) -> None:
     data = Path(sample_pdf).read_bytes()
     created = client.post(
         "/v1/conversions",
@@ -270,7 +285,7 @@ def test_report_not_ready_is_409(client, sample_pdf: str) -> None:
     assert response.headers["cache-control"] == "no-store"
 
 
-def test_pdf_not_ready_is_409(client, sample_pdf: str) -> None:
+def test_pdf_not_ready_is_409(client: TestClient, sample_pdf: str) -> None:
     data = Path(sample_pdf).read_bytes()
     created = client.post(
         "/v1/conversions",
@@ -281,7 +296,9 @@ def test_pdf_not_ready_is_409(client, sample_pdf: str) -> None:
     assert response.status_code == 409
 
 
-def test_pdf_missing_blob_is_409(client, stores, settings) -> None:
+def test_pdf_missing_blob_is_409(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
     from bluepaper.config import pdf_blob_key
     from bluepaper.worker.job import process_one
 
@@ -296,7 +313,7 @@ def test_pdf_missing_blob_is_409(client, stores, settings) -> None:
     assert response.status_code == 409
 
 
-def test_malformed_authorization_is_401(client) -> None:
+def test_malformed_authorization_is_401(client: TestClient) -> None:
     response = client.post(
         "/v1/conversions",
         headers={"Authorization": "Basic test-key"},
@@ -305,7 +322,7 @@ def test_malformed_authorization_is_401(client) -> None:
     assert response.status_code == 401
 
 
-def test_unsupported_ocr_lang_is_400(client) -> None:
+def test_unsupported_ocr_lang_is_400(client: TestClient) -> None:
     response = client.post(
         "/v1/conversions",
         headers=auth(),
@@ -315,7 +332,7 @@ def test_unsupported_ocr_lang_is_400(client) -> None:
     assert response.status_code == 400
 
 
-def test_supported_ocr_lang_is_accepted(client, stores) -> None:
+def test_supported_ocr_lang_is_accepted(client: TestClient, stores: Stores) -> None:
     response = client.post(
         "/v1/conversions",
         headers=auth(),
@@ -328,7 +345,7 @@ def test_supported_ocr_lang_is_accepted(client, stores) -> None:
     assert record.ocr_lang == "eng"
 
 
-def test_office_extension_is_accepted(client) -> None:
+def test_office_extension_is_accepted(client: TestClient) -> None:
     response = client.post(
         "/v1/conversions",
         headers=auth(),
@@ -343,7 +360,7 @@ def test_office_extension_is_accepted(client) -> None:
     assert response.status_code == 202
 
 
-def test_uppercase_pdf_extension_is_accepted(client) -> None:
+def test_uppercase_pdf_extension_is_accepted(client: TestClient) -> None:
     response = client.post(
         "/v1/conversions",
         headers=auth(),
@@ -352,7 +369,7 @@ def test_uppercase_pdf_extension_is_accepted(client) -> None:
     assert response.status_code == 202
 
 
-def test_filename_without_supported_extension_is_415(client) -> None:
+def test_filename_without_supported_extension_is_415(client: TestClient) -> None:
     response = client.post(
         "/v1/conversions",
         headers=auth(),
@@ -361,12 +378,12 @@ def test_filename_without_supported_extension_is_415(client) -> None:
     assert response.status_code == 415
 
 
-def test_delete_unknown_is_404(client) -> None:
+def test_delete_unknown_is_404(client: TestClient) -> None:
     response = client.delete("/v1/conversions/cnv_01J8Z3K4N5P6Q7R8S9T0", headers=auth())
     assert response.status_code == 404
 
 
-def test_delete_running_marks_cancelled(client, stores) -> None:
+def test_delete_running_marks_cancelled(client: TestClient, stores: Stores) -> None:
     stores.table.create(
         ConversionRecord(
             id="cnv_running_cancel",
@@ -383,7 +400,7 @@ def test_delete_running_marks_cancelled(client, stores) -> None:
     assert record.status == ConversionStatus.cancelled
 
 
-def test_delete_cancelled_removes_row(client, sample_pdf: str) -> None:
+def test_delete_cancelled_removes_row(client: TestClient, sample_pdf: str) -> None:
     data = Path(sample_pdf).read_bytes()
     created = client.post(
         "/v1/conversions",
@@ -400,7 +417,7 @@ def test_delete_cancelled_removes_row(client, sample_pdf: str) -> None:
     )
 
 
-def test_source_includes_commit(settings, stores) -> None:
+def test_source_includes_commit(settings: Settings, stores: Stores) -> None:
     from fastapi.testclient import TestClient
 
     from bluepaper.api.app import create_app
@@ -415,12 +432,12 @@ def test_source_includes_commit(settings, stores) -> None:
     assert "github.com" in body["source_url"]
 
 
-def test_healthz_body(client) -> None:
+def test_healthz_body(client: TestClient) -> None:
     response = client.get("/healthz")
     assert response.json() == {"status": "ok"}
 
 
-def test_frontend_is_public(client) -> None:
+def test_frontend_is_public(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
@@ -441,7 +458,7 @@ def test_frontend_is_public(client) -> None:
     assert b"API key" not in response.content
 
 
-def test_frontend_assets_are_public(client) -> None:
+def test_frontend_assets_are_public(client: TestClient) -> None:
     css = client.get("/ui/styles.css")
     js = client.get("/ui/app.js")
     icon = client.get("/ui/favicon.svg")
@@ -473,7 +490,7 @@ def test_frontend_assets_are_public(client) -> None:
     assert b"api-key" not in js.content
 
 
-def test_sign_libraries_are_public(client) -> None:
+def test_sign_libraries_are_public(client: TestClient) -> None:
     pdf_lib = client.get("/ui/vendor/pdf-lib.esm.min.mjs")
     pad = client.get("/ui/vendor/signature_pad.min.mjs")
     assert pdf_lib.status_code == 200
@@ -485,7 +502,7 @@ def test_sign_libraries_are_public(client) -> None:
     assert b"Signature Pad" in pad.content
 
 
-def test_pdfjs_preview_assets_are_public(client) -> None:
+def test_pdfjs_preview_assets_are_public(client: TestClient) -> None:
     library = client.get("/ui/vendor/pdf.min.mjs")
     worker = client.get("/ui/vendor/pdf.worker.min.mjs")
     assert library.status_code == 200
@@ -495,13 +512,13 @@ def test_pdfjs_preview_assets_are_public(client) -> None:
     assert "javascript" in worker.headers["content-type"]
 
 
-def test_frontend_is_not_in_openapi(client) -> None:
+def test_frontend_is_not_in_openapi(client: TestClient) -> None:
     spec = client.get("/openapi.json").json()
     assert "/" not in spec["paths"]
     assert "/ui" not in spec["paths"]
 
 
-def test_turnstile_rejects_missing_token(settings, stores) -> None:
+def test_turnstile_rejects_missing_token(settings: Settings, stores: Stores) -> None:
     from fastapi.testclient import TestClient
 
     from bluepaper.api.app import create_app
@@ -516,7 +533,7 @@ def test_turnstile_rejects_missing_token(settings, stores) -> None:
     assert response.status_code == 403
 
 
-def test_api_key_skips_turnstile(settings, stores) -> None:
+def test_api_key_skips_turnstile(settings: Settings, stores: Stores) -> None:
     from fastapi.testclient import TestClient
 
     from bluepaper.api.app import create_app
@@ -537,7 +554,9 @@ def test_api_key_skips_turnstile(settings, stores) -> None:
     assert visible.status_code == 200
 
 
-def test_turnstile_accepts_verified_token(settings, stores, monkeypatch) -> None:
+def test_turnstile_accepts_verified_token(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from fastapi.testclient import TestClient
 
     from bluepaper.api import turnstile
@@ -570,7 +589,9 @@ def test_turnstile_accepts_verified_token(settings, stores, monkeypatch) -> None
     assert deleted.status_code == 204
 
 
-def test_turnstile_rejects_wrong_hostname(settings, stores, monkeypatch) -> None:
+def test_turnstile_rejects_wrong_hostname(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from fastapi.testclient import TestClient
 
     from bluepaper.api import turnstile
@@ -597,7 +618,7 @@ def test_turnstile_rejects_wrong_hostname(settings, stores, monkeypatch) -> None
 
 
 def test_invalid_key_does_not_fall_through_to_turnstile(
-    settings, stores, monkeypatch
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fastapi.testclient import TestClient
 
@@ -621,7 +642,7 @@ def test_invalid_key_does_not_fall_through_to_turnstile(
 
 
 def test_turnstile_test_secret_accepts_dummy_payload(
-    settings, stores, monkeypatch
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fastapi.testclient import TestClient
 
@@ -648,7 +669,7 @@ def test_turnstile_test_secret_accepts_dummy_payload(
     assert response.status_code == 202
 
 
-def test_report_and_pdf_unknown_are_404(client) -> None:
+def test_report_and_pdf_unknown_are_404(client: TestClient) -> None:
     missing = "cnv_01J8Z3K4N5P6Q7R8S9T0"
     assert (
         client.get(f"/v1/conversions/{missing}/report", headers=auth()).status_code

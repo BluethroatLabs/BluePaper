@@ -6,7 +6,9 @@ from bluepaper.models import ConversionRecord, QueueLease
 
 
 class BlobStore(Protocol):
-    def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None: ...
+    def put(
+        self, key: str, data: bytes, content_type: str = "application/octet-stream"
+    ) -> None: ...
 
     def get(self, key: str) -> bytes | None: ...
 

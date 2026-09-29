@@ -24,6 +24,7 @@ from bluepaper.models import (
 )
 from bluepaper.scan.scanner import ScanTimeout, scan_bytes
 from bluepaper.storage.base import Stores
+from dangerzone.document import Document
 
 log = logging.getLogger("bluepaper.worker")
 
@@ -64,7 +65,7 @@ def _azure_error_code(exc: BaseException) -> str:
 class IsolationLike(Protocol):
     def convert(
         self,
-        document: object,
+        document: Document,
         ocr_lang: str | None,
         progress_callback: Callable | None = None,
     ) -> None: ...
@@ -94,7 +95,9 @@ def process_one(
     if record is None:
         stores.queue.complete(lease)
         return True
-    if record.status in (
+    # Bind a non-optional name. Nested workers do not see the narrowing above.
+    current = record
+    if current.status in (
         ConversionStatus.cancelled,
         ConversionStatus.failed,
         ConversionStatus.succeeded,
@@ -102,26 +105,27 @@ def process_one(
         stores.queue.complete(lease)
         return True
     if lease.dequeue_count > settings.max_dequeues:
-        record.status = ConversionStatus.failed
-        record.error = "poisoned queue message"
-        record.finished_at = utc_now()
-        stores.table.update(record)
+        current.status = ConversionStatus.failed
+        current.error = "poisoned queue message"
+        current.finished_at = utc_now()
+        stores.table.update(current)
         stores.queue.complete(lease)
         return True
 
-    record.status = ConversionStatus.running
-    record.started_at = record.started_at or utc_now()
-    record.stage = "doc_to_pixels"
-    stores.table.update(record)
+    current.status = ConversionStatus.running
+    current.started_at = current.started_at or utc_now()
+    current.stage = "doc_to_pixels"
+    stores.table.update(current)
 
-    original = stores.blobs.get(original_blob_key(record.sha256))
+    original = stores.blobs.get(original_blob_key(current.sha256))
     if original is None:
-        record.status = ConversionStatus.failed
-        record.error = "original blob missing"
-        record.finished_at = utc_now()
-        stores.table.update(record)
+        current.status = ConversionStatus.failed
+        current.error = "original blob missing"
+        current.finished_at = utc_now()
+        stores.table.update(current)
         stores.queue.complete(lease)
         return True
+    source = original
 
     scan_hits: list[Hit] | None = None
     scan_version = "1.0.0"
@@ -131,21 +135,21 @@ def process_one(
 
     def do_scan() -> None:
         nonlocal scan_hits, scan_version
-        result = scan_bytes(original, timeout_seconds=settings.scan_timeout_seconds)
+        result = scan_bytes(source, timeout_seconds=settings.scan_timeout_seconds)
         scan_hits = result.hits
         scan_version = result.catalog_version
 
     def do_convert() -> None:
         nonlocal pdf_bytes, pages, conv_error
-        latest = stores.table.get(record.id)
+        latest = stores.table.get(current.id)
         if latest is not None and latest.status == ConversionStatus.cancelled:
             return
         pdf_bytes, pages = _convert_document(
             isolation,
-            original,
-            record.filename,
-            record.ocr_lang,
-            lambda _err, text, _pct: _update_stage(stores, record.id, text),
+            source,
+            current.filename,
+            current.ocr_lang,
+            lambda _err, text, _pct: _update_stage(stores, current.id, text),
         )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -218,8 +222,6 @@ def _convert_document(
     ocr_lang: str | None,
     progress_callback: Callable | None,
 ) -> tuple[bytes, int]:
-    from dangerzone.document import Document
-
     suffix = Path(filename).suffix or ".bin"
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / f"input{suffix}"
@@ -251,8 +253,7 @@ def _build_report(
     pages: int | None,
     conv_error: str | None,
 ) -> Report:
-    succeeded = pdf_bytes is not None and conv_error is None
-    if succeeded:
+    if pdf_bytes is not None and conv_error is None:
         conversion = ConversionOutcome(
             status="succeeded",
             pages=pages,

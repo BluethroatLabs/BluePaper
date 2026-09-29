@@ -4,15 +4,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from dangerzone.document import Document
 
+from bluepaper.config import Settings
 from bluepaper.isolation.aca import (
     AcaIsolationProvider,
     _connect_and_create,
     _deny_all_egress,
 )
 from bluepaper.isolation.dummy import dummy_pixel_protocol
-from bluepaper.isolation.session import CONVERT_WRAPPER
+from bluepaper.isolation.session import CONVERT_WRAPPER, ExecResult
+from dangerzone.document import Document
 
 
 class FakeSandbox:
@@ -37,8 +38,8 @@ class FakeSandbox:
         self.str_payload = str_payload
         self.success_exit_code = success_exit_code
         self.exit_code: int | None = 0
-        self.stdout = b""
-        self.stderr = b""
+        self.stdout: bytes | str | None = b""
+        self.stderr: bytes | str | None = b""
 
     def write_file(self, path: str, data: bytes | str) -> None:
         if isinstance(data, str):
@@ -58,7 +59,7 @@ class FakeSandbox:
     def mkdir(self, path: str) -> None:
         self.files.setdefault(path.rstrip("/") + "/.keep", b"")
 
-    def exec(self, command: str) -> FakeSandbox:
+    def exec(self, command: str) -> ExecResult:
         self.commands.append(command)
         if self.fail_exec:
             self.exit_code = 99
@@ -94,7 +95,10 @@ def test_aca_deletes_sandbox_and_never_snapshots(tmp_path: Path) -> None:
     assert doc.is_safe()
     assert sandbox.deleted is True
     assert sandbox.snapshots == 0
-    assert CONVERT_WRAPPER.encode("utf-8") in sandbox.files["/tmp/bluepaper/run_convert.py"]
+    assert (
+        CONVERT_WRAPPER.encode("utf-8")
+        in sandbox.files["/tmp/bluepaper/run_convert.py"]
+    )
     assert dst.is_file()
     assert dst.read_bytes().startswith(b"%PDF")
 
@@ -193,13 +197,13 @@ def test_aca_is_not_a_local_process() -> None:
     provider.terminate_doc_to_pixels_proc(Document(), None)  # type: ignore[arg-type]
 
 
-def test_aca_from_settings_uses_pixel_budget(settings) -> None:
+def test_aca_from_settings_uses_pixel_budget(settings: Settings) -> None:
     settings.max_pixel_bytes = 12345
     provider = AcaIsolationProvider.from_settings(settings)
     assert provider.max_pixel_bytes == 12345
 
 
-def test_connect_requires_subscription_and_group(settings) -> None:
+def test_connect_requires_subscription_and_group(settings: Settings) -> None:
     with pytest.raises(RuntimeError, match="subscription"):
         _connect_and_create(settings)
     settings.azure_subscription_id = "sub"
@@ -219,8 +223,8 @@ def test_deny_all_egress_prefers_full_inspection() -> None:
             self.traffic_inspection = traffic_inspection
 
     policy = _deny_all_egress(FullPolicy)
-    assert policy.default_action == "Deny"  # type: ignore[union-attr]
-    assert policy.traffic_inspection == "Full"  # type: ignore[union-attr]
+    assert policy.default_action == "Deny"
+    assert policy.traffic_inspection == "Full"
 
 
 def test_deny_all_egress_falls_back_without_inspection() -> None:
@@ -229,7 +233,7 @@ def test_deny_all_egress_falls_back_without_inspection() -> None:
             self.default_action = default_action
 
     policy = _deny_all_egress(DenyOnly)
-    assert policy.default_action == "Deny"  # type: ignore[union-attr]
+    assert policy.default_action == "Deny"
 
 
 def test_convert_wrapper_rewires_stdio() -> None:
