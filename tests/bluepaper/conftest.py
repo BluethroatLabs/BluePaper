@@ -5,12 +5,12 @@ from fastapi.testclient import TestClient
 
 from bluepaper.api.app import create_app
 from bluepaper.config import Settings
-from bluepaper.models import ConversionRecord, ConversionStatus, utc_now
+from bluepaper.storage.base import Stores
 from bluepaper.storage.memory import memory_stores
 
 
 @pytest.fixture
-def stores():
+def stores() -> Stores:
     return memory_stores()
 
 
@@ -29,7 +29,7 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def client(settings: Settings, stores) -> TestClient:
+def client(settings: Settings, stores: Stores) -> TestClient:
     return TestClient(create_app(settings, stores))
 
 

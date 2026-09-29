@@ -11,12 +11,12 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import Response as StarletteResponse
 
 from bluepaper.api.routes import router
+from bluepaper.api.site import PAGES_DIR, mount_site
 from bluepaper.config import Settings
 from bluepaper.models import HealthResponse
 from bluepaper.storage import build_stores
@@ -66,8 +66,9 @@ Integrators send `Authorization: Bearer <api-key>` on conversion routes.
 The console at `/` does not. `POST /v1/conversions` accepts a completed
 Turnstile token instead, and that conversion id then authorizes status,
 report, PDF, and delete. Key-created conversions still require the API key.
-`GET /v1/source`, `/`, `/ui`, `/healthz`, `/openapi.json`, `/docs`, and
-`/redoc` are unauthenticated.
+`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`,
+`/for-agents`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,
+`/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.
 """.strip()
 
 
@@ -116,13 +117,10 @@ def create_app(
     def healthz() -> HealthResponse:
         return HealthResponse(status="ok")
 
+    if PAGES_DIR.is_dir():
+        mount_site(application, settings.public_url)
+
     if WEB_DIR.is_dir():
-        index = WEB_DIR / "index.html"
-
-        @application.get("/", include_in_schema=False)
-        def frontend_index() -> FileResponse:
-            return FileResponse(index, media_type="text/html")
-
         application.mount("/ui", StaticFiles(directory=WEB_DIR), name="ui")
 
     return application

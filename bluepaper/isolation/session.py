@@ -4,7 +4,7 @@ from typing import Protocol
 
 
 class ExecResult(Protocol):
-    exit_code: int
+    exit_code: int | None
     stdout: bytes | str | None
     stderr: bytes | str | None
 
@@ -29,7 +29,7 @@ class SandboxSession(Protocol):
 # isolates the sandbox, so the wrapper imports the package in place.
 # doc_to_pixels reads sys.stdin.buffer and writes sys.stdout.buffer, so the
 # files have to be the real standard streams (dup2), not replacement objects.
-CONVERT_WRAPPER = '''\
+CONVERT_WRAPPER = """\
 import os
 import runpy
 import sys
@@ -59,4 +59,4 @@ if hasattr(os, "geteuid") and os.geteuid() == 0 and os.path.isdir("/home/dangerz
     os.setuid(1000)
 
 runpy.run_module("dangerzone.conversion.doc_to_pixels", run_name="__main__")
-'''
+"""

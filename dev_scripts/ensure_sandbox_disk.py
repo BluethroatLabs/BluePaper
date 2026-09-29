@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+log = logging.getLogger("bluepaper.disk")
 
 API_VERSION = "2026-02-01-preview"
 TOKEN_RESOURCE = "https://dynamicsessions.io"
@@ -118,7 +121,7 @@ class DataPlane:
     def get_disk(self, disk_id: str) -> dict:
         item = self.request("GET", f"{self.group_path}/diskimages/{disk_id}")
         if not isinstance(item, dict):
-            raise RuntimeError("disk get returned an unexpected payload")
+            raise TypeError("disk get returned an unexpected payload")
         return item
 
 
@@ -169,8 +172,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     try:
         main()
-    except Exception as exc:
-        print(str(exc), file=sys.stderr)
+    except Exception:
+        log.exception("disk setup failed")
         sys.exit(1)

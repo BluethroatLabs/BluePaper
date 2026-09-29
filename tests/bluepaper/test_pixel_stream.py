@@ -5,10 +5,10 @@ from pathlib import Path
 
 import fitz
 import pytest
-from dangerzone import conversion_errors as errors
-from dangerzone.document import Document
 
 from bluepaper.isolation.dummy import InProcessDummy, dummy_pixel_protocol
+from dangerzone import conversion_errors as errors
+from dangerzone.document import Document
 
 
 class _RecordingStdin:

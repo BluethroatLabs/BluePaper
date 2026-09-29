@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from bluepaper.models import ConversionRecord, QueueLease
 from bluepaper.storage.base import Stores
 
+log = logging.getLogger("bluepaper.storage")
+
 
 class AzureBlobStore:
     def __init__(self, client: Any, container: str) -> None:
         self._container = client.get_container_client(container)
+        from azure.core.exceptions import ResourceExistsError
+
         try:
             self._container.create_container()
-        except Exception:
-            pass
+        except ResourceExistsError:
+            log.debug("blob container %s already exists", container)
 
     def put(
         self, key: str, data: bytes, content_type: str = "application/octet-stream"
@@ -80,10 +85,12 @@ class AzureTableStore:
 class AzureQueue:
     def __init__(self, service: Any, queue_name: str) -> None:
         self._queue = service.get_queue_client(queue_name)
+        from azure.core.exceptions import ResourceExistsError
+
         try:
             self._queue.create_queue()
-        except Exception:
-            pass
+        except ResourceExistsError:
+            log.debug("queue %s already exists", queue_name)
 
     def enqueue(self, conversion_id: str) -> None:
         self._queue.send_message(conversion_id)
