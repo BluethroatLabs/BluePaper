@@ -35,7 +35,6 @@ var envName = '${prefix}-env'
 var apiName = '${prefix}-api'
 var workerName = '${prefix}-worker'
 var sandboxGroupName = '${prefix}-sandboxes'
-var workspaceName = '${prefix}-logs'
 var acrServer = split(apiImage, '/')[0]
 var workerEnv = concat([
   { name: 'BLUEPAPER_API_KEY', secretRef: 'api-key' }
@@ -62,15 +61,6 @@ var tableContributor = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 )
-
-resource workspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
-  name: workspaceName
-  location: location
-  properties: {
-    sku: { name: 'PerGB2018' }
-    retentionInDays: 30
-  }
-}
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageName
@@ -118,12 +108,9 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: envName
   location: location
   properties: {
+    // Explicit 'none' so a later deployment cannot turn Log Analytics back on.
     appLogsConfiguration: {
-      destination: 'log-analytics'
-      logAnalyticsConfiguration: {
-        customerId: workspace.properties.customerId
-        sharedKey: workspace.listKeys().primarySharedKey
-      }
+      destination: 'none'
     }
   }
 }

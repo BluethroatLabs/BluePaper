@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "8364423110470026420"
+      "templateHash": "934858922366939306"
     }
   },
   "parameters": {
@@ -66,6 +66,13 @@
       "metadata": {
         "description": "Comma-separated hostnames accepted by Turnstile. Production is the Front Door hostname."
       }
+    },
+    "sandboxDiskId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Dangerzone sandbox disk id. Empty until the disk exists."
+      }
     }
   },
   "variables": {
@@ -74,25 +81,13 @@
     "apiName": "[format('{0}-api', parameters('prefix'))]",
     "workerName": "[format('{0}-worker', parameters('prefix'))]",
     "sandboxGroupName": "[format('{0}-sandboxes', parameters('prefix'))]",
-    "workspaceName": "[format('{0}-logs', parameters('prefix'))]",
     "acrServer": "[split(parameters('apiImage'), '/')[0]]",
+    "workerEnv": "[concat(createArray(createObject('name', 'BLUEPAPER_API_KEY', 'secretRef', 'api-key'), createObject('name', 'BLUEPAPER_STORAGE_BACKEND', 'value', 'azure'), createObject('name', 'BLUEPAPER_ISOLATION', 'value', 'aca'), createObject('name', 'BLUEPAPER_AZURE_STORAGE_ACCOUNT', 'value', variables('storageName')), createObject('name', 'BLUEPAPER_AZURE_SUBSCRIPTION_ID', 'value', subscription().subscriptionId), createObject('name', 'BLUEPAPER_AZURE_RESOURCE_GROUP', 'value', resourceGroup().name), createObject('name', 'BLUEPAPER_AZURE_REGION', 'value', parameters('location')), createObject('name', 'BLUEPAPER_SANDBOX_GROUP', 'value', variables('sandboxGroupName'))), if(empty(parameters('sandboxDiskId')), createArray(), createArray(createObject('name', 'BLUEPAPER_SANDBOX_DISK_ID', 'value', parameters('sandboxDiskId')))))]",
     "blobContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
     "queueContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '974c5e8b-45b9-4653-ba55-5f855dd0fb88')]",
     "tableContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')]"
   },
   "resources": [
-    {
-      "type": "Microsoft.OperationalInsights/workspaces",
-      "apiVersion": "2022-10-01",
-      "name": "[variables('workspaceName')]",
-      "location": "[parameters('location')]",
-      "properties": {
-        "sku": {
-          "name": "PerGB2018"
-        },
-        "retentionInDays": 30
-      }
-    },
     {
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2023-05-01",
@@ -163,16 +158,9 @@
       "location": "[parameters('location')]",
       "properties": {
         "appLogsConfiguration": {
-          "destination": "log-analytics",
-          "logAnalyticsConfiguration": {
-            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName')), '2022-10-01').customerId]",
-            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName')), '2022-10-01').primarySharedKey]"
-          }
+          "destination": "none"
         }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName'))]"
-      ]
+      }
     },
     {
       "type": "Microsoft.App/containerApps",
@@ -292,40 +280,11 @@
             {
               "name": "worker",
               "image": "[parameters('workerImage')]",
-              "env": [
-                {
-                  "name": "BLUEPAPER_API_KEY",
-                  "secretRef": "api-key"
-                },
-                {
-                  "name": "BLUEPAPER_STORAGE_BACKEND",
-                  "value": "azure"
-                },
-                {
-                  "name": "BLUEPAPER_ISOLATION",
-                  "value": "aca"
-                },
-                {
-                  "name": "BLUEPAPER_AZURE_STORAGE_ACCOUNT",
-                  "value": "[variables('storageName')]"
-                },
-                {
-                  "name": "BLUEPAPER_AZURE_SUBSCRIPTION_ID",
-                  "value": "[subscription().subscriptionId]"
-                },
-                {
-                  "name": "BLUEPAPER_AZURE_RESOURCE_GROUP",
-                  "value": "[resourceGroup().name]"
-                },
-                {
-                  "name": "BLUEPAPER_AZURE_REGION",
-                  "value": "[parameters('location')]"
-                },
-                {
-                  "name": "BLUEPAPER_SANDBOX_GROUP",
-                  "value": "[variables('sandboxGroupName')]"
-                }
-              ]
+              "resources": {
+                "cpu": "[json('2')]",
+                "memory": "4Gi"
+              },
+              "env": "[variables('workerEnv')]"
             }
           ],
           "scale": {
