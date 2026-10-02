@@ -18,6 +18,7 @@ from starlette.responses import Response as StarletteResponse
 from bluepaper.api.routes import router
 from bluepaper.api.site import PAGES_DIR, mount_site
 from bluepaper.config import Settings
+from bluepaper.logging import configure_logging
 from bluepaper.models import HealthResponse
 from bluepaper.storage import build_stores
 from bluepaper.storage.base import Stores
@@ -158,10 +159,7 @@ def write_openapi(path: str | os.PathLike[str] = "docs/openapi.json") -> None:
 
 
 def run() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()
     import uvicorn
 
     settings = Settings()

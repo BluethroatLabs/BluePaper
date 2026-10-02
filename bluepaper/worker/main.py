@@ -4,6 +4,7 @@ import logging
 import time
 
 from bluepaper.config import Settings
+from bluepaper.logging import configure_logging
 from bluepaper.storage import build_stores
 from bluepaper.worker.job import get_isolation, process_one
 
@@ -11,10 +12,7 @@ log = logging.getLogger("bluepaper.worker")
 
 
 def run() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()
     settings = Settings()
     stores = build_stores(settings)
     isolation = get_isolation(settings)
