@@ -17,7 +17,7 @@ from starlette.requests import Request
 from starlette.responses import Response as StarletteResponse
 
 from bluepaper.api.routes import router
-from bluepaper.api.site import PAGES_DIR, mount_site
+from bluepaper.api.site import PAGES_DIR, mount_site, render_layout
 from bluepaper.config import Settings
 from bluepaper.logging import configure_logging
 from bluepaper.models import HealthResponse
@@ -145,7 +145,7 @@ def create_app(
             title, description = legal_pages[page_name]
             body = (WEB_DIR / "legal" / f"{page_name}.html").read_text()
             html = (
-                legal_template.read_text()
+                render_layout(legal_template.read_text(), name="legal.html")
                 .replace("{{TITLE}}", title)
                 .replace("{{DESCRIPTION}}", description)
                 .replace("{{BODY}}", body)

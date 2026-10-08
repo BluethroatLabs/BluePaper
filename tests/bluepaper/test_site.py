@@ -23,6 +23,23 @@ def site(settings: Settings, stores: Stores) -> TestClient:
     return TestClient(create_app(settings, stores))
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["/", "/about", "/how-it-works", "/for-agents", "/privacy", "/terms", "/support"],
+)
+def test_shared_layout_is_rendered_on_every_page(site: TestClient, path: str) -> None:
+    html = site.get(path).text
+    assert html.count('class="topbar"') == 1
+    assert html.count('class="product-lockup"') == 1
+    assert html.count('class="page-footer"') == 1
+    assert html.count('src="/ui/theme.js"') == 1
+    assert html.count("<h1") == 1
+    assert "{{" not in html
+    assert "<!-- CONTENT -->" not in html
+    if path in ("/about", "/how-it-works", "/for-agents"):
+        assert f'href="{path}" aria-current="page"' in html
+
+
 @pytest.mark.parametrize("path", [path for path, _, _ in PAGES])
 def test_pages_carry_canonical_and_social_metadata(site: TestClient, path: str) -> None:
     response = site.get(path)
