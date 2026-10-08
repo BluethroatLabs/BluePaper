@@ -17,7 +17,6 @@ PAGES = (
     ("/", "index.html", "2026-09-29"),
     ("/about", "about.html", "2026-09-29"),
     ("/how-it-works", "how-it-works.html", "2026-09-29"),
-    ("/for-agents", "for-agents.html", "2026-09-29"),
 )
 
 
