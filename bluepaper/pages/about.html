@@ -1,11 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#070707" />
-    <title>About BluePaper and FAQ | Safe PDF Document Sanitizer</title>
+<title>About BluePaper and FAQ | Safe PDF Document Sanitizer</title>
     <meta
       name="description"
       content="What BluePaper is, how rebuilding from pixels makes a document safe, what the byte-indicator report means, and what happens to the files you upload."
@@ -33,14 +26,6 @@
     />
     <meta name="twitter:image" content="{{SITE_URL}}/ui/og-image.png" />
     <meta name="twitter:image:alt" content="BluePaper: rebuild untrusted documents from pixels" />
-    <link rel="icon" href="/ui/favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400;600&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="/ui/styles.css" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -200,62 +185,28 @@
                   "text": "Dangerzone is a desktop app that converts documents on your own computer inside a local container. BluePaper keeps Dangerzone's converters but runs them as a web service and REST API, with each conversion in a disposable cloud microVM. The trade-off: with BluePaper your file leaves your machine. For documents that must not leave your computer, use Dangerzone locally. BluePaper is an independent fork and is not a Freedom of the Press Foundation product."
                 }
               },
-              {
-                "@type": "Question",
-                "name": "Can I use BluePaper from code or an AI agent?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "Yes, through the REST API with an integrator API key from the operator. The web console requires a human check and must not be automated. The For agents page describes the workflow, and the OpenAPI specification is at /openapi.json."
-                }
-              }
             ]
           }
         ]
       }
     </script>
-  </head>
-  <body>
-    <div class="frame">
-      <header class="nav">
-        <a class="brand" href="/" aria-label="BluePaper home">
-          <span class="brand-name">BluePaper</span>
-        </a>
-        <nav class="nav-links" aria-label="Primary">
-          <a class="nav-link" href="/#convert">Convert</a>
-          <a class="nav-link" href="/how-it-works">How it works</a>
-          <a class="nav-link" href="/about" aria-current="page">About</a>
-          <a class="nav-link" href="/for-agents">For agents</a>
-        </nav>
-        <a
-          class="nav-icon"
-          href="https://github.com/BluethroatLabs/BluePaper"
-          title="GitHub"
-          aria-label="BluePaper on GitHub"
-        >
-          <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"
-            />
-          </svg>
-        </a>
-      </header>
 
-      <main>
-        <section class="hero hero--page" aria-labelledby="page-title">
-          <div class="hero-texture" aria-hidden="true"></div>
+<!-- CONTENT -->
+<article class="paper-scroll" aria-labelledby="page-title">
+        <header class="scroll-header">
           <h1 id="page-title">
             About
             <span>BluePaper</span>
           </h1>
-          <div class="hero-caption">
+          <div class="scroll-caption">
             <p>
               The checkpoint between you and a document you did not ask for.
             </p>
           </div>
-        </section>
+        </header>
 
-        <p class="kicker" id="overview">Overview</p>
+        <div class="scroll-copy">
+        <h2 id="overview">Overview</h2>
 
         <section class="contract" aria-labelledby="overview">
           <div class="stat">
@@ -291,7 +242,7 @@
           </div>
         </section>
 
-        <p class="kicker" id="faq">Frequently asked questions</p>
+        <h2 id="faq">Frequently asked questions</h2>
 
         <section class="faq" aria-labelledby="faq">
           <details class="faq-item" id="what-is-bluepaper">
@@ -535,7 +486,7 @@
             </div>
           </details>
 
-          <details class="faq-item" id="api">
+          <!-- <details class="faq-item" id="api">
             <summary><span class="faq-num">17</span>Can I use BluePaper from code or an AI agent?</summary>
             <div class="faq-answer">
               <p>
@@ -546,24 +497,10 @@
                 <a class="text-link" href="/openapi.json"><code>/openapi.json</code></a>.
               </p>
             </div>
-          </details>
+          </details> -->
         </section>
-      </main>
+        </div>
+        <footer class="scroll-footer">BluePaper by Bluethroat Labs · AGPL-3.0</footer>
+        </article>
 
-      <footer class="footer">
-        <p>Bluethroat Labs · AGPL-3.0</p>
-        <nav class="footer-links" aria-label="Site">
-          <a href="/about">About</a>
-          <a href="/about#faq">FAQ</a>
-          <a href="/how-it-works">How it works</a>
-          <a href="/for-agents">For agents</a>
-        </nav>
-        <p>
-          <a href="/docs">API</a>
-          ·
-          <a href="https://github.com/BluethroatLabs/BluePaper">Corresponding source</a>
-        </p>
-      </footer>
-    </div>
-  </body>
-</html>
+<!-- SCRIPTS -->

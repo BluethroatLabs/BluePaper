@@ -101,6 +101,7 @@ globalThis.window = globalThis;
 globalThis.sessionStorage = { removeItem() {} };
 globalThis.location = { hostname: "127.0.0.1" };
 globalThis.document = {
+  documentElement: createElement("html"),
   getElementById: element,
   createElement,
   body: createElement("body"),

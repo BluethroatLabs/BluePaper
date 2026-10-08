@@ -19,7 +19,6 @@ Important limitations:
 ## Use BluePaper
 
 - [Web console]({{SITE_URL}}/): Convert an untrusted document in a browser.
-- [BluePaper for agents]({{SITE_URL}}/for-agents): REST API workflow for AI agents and integrators, and how to report results.
 - [About BluePaper]({{SITE_URL}}/about): Product overview and frequently asked questions.
 
 ## How it works
