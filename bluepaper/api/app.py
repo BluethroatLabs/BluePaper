@@ -11,13 +11,15 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import Response as StarletteResponse
 
 from bluepaper.api.routes import router
+from bluepaper.api.site import PAGES_DIR, mount_site
 from bluepaper.config import Settings
+from bluepaper.logging import configure_logging
 from bluepaper.models import HealthResponse
 from bluepaper.storage import build_stores
 from bluepaper.storage.base import Stores
@@ -66,8 +68,9 @@ Integrators send `Authorization: Bearer <api-key>` on conversion routes.
 The console at `/` does not. `POST /v1/conversions` accepts a completed
 Turnstile token instead, and that conversion id then authorizes status,
 report, PDF, and delete. Key-created conversions still require the API key.
-`GET /v1/source`, `/`, `/ui`, `/healthz`, `/openapi.json`, `/docs`, and
-`/redoc` are unauthenticated.
+`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`,
+`/for-agents`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,
+`/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.
 """.strip()
 
 
@@ -116,22 +119,27 @@ def create_app(
     def healthz() -> HealthResponse:
         return HealthResponse(status="ok")
 
+    if PAGES_DIR.is_dir():
+        mount_site(application, settings.public_url)
+
     if WEB_DIR.is_dir():
-        index = WEB_DIR / "index.html"
         legal_template = WEB_DIR / "legal.html"
         legal_pages = {
-            "privacy": ("Privacy", "How BluePaper handles uploaded documents and conversion artifacts."),
+            "privacy": (
+                "Privacy",
+                "How BluePaper handles uploaded documents and conversion artifacts.",
+            ),
             "terms": ("Terms", "Terms of use and limitations for BluePaper."),
             "support": ("Support", "How to report BluePaper issues and get help."),
         }
 
-        @application.get("/", include_in_schema=False)
-        def frontend_index() -> FileResponse:
-            return FileResponse(index, media_type="text/html")
-
-        @application.get("/privacy", include_in_schema=False, response_class=HTMLResponse)
+        @application.get(
+            "/privacy", include_in_schema=False, response_class=HTMLResponse
+        )
         @application.get("/terms", include_in_schema=False, response_class=HTMLResponse)
-        @application.get("/support", include_in_schema=False, response_class=HTMLResponse)
+        @application.get(
+            "/support", include_in_schema=False, response_class=HTMLResponse
+        )
         def frontend_legal(request: Request) -> HTMLResponse:
             page_name = request.url.path.lstrip("/")
             title, description = legal_pages[page_name]
@@ -181,10 +189,7 @@ def write_openapi(path: str | os.PathLike[str] = "docs/openapi.json") -> None:
 
 
 def run() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()
     import uvicorn
 
     settings = Settings()

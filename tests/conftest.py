@@ -41,9 +41,7 @@ def isolated_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Settin
     from dangerzone.settings import Settings
 
     Settings._singleton = None
-    monkeypatch.setattr(
-        "dangerzone.settings.get_config_dir", lambda: tmp_path
-    )
+    monkeypatch.setattr("dangerzone.settings.get_config_dir", lambda: tmp_path)
     return Settings()
 
 

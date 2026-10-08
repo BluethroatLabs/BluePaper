@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import quote, unquote
 
 from fastapi import (
@@ -50,13 +50,15 @@ from bluepaper.storage.base import Stores
 
 router = APIRouter(prefix="/v1")
 
-ERROR_401 = {
+_ErrorSpec = dict[int | str, dict[str, Any]]
+
+ERROR_401: _ErrorSpec = {
     status.HTTP_401_UNAUTHORIZED: {
         "model": ErrorResponse,
         "description": "Missing or invalid API key",
     }
 }
-ERROR_404 = {
+ERROR_404: _ErrorSpec = {
     status.HTTP_404_NOT_FOUND: {
         "model": ErrorResponse,
         "description": "Conversion not found",
@@ -65,7 +67,7 @@ ERROR_404 = {
 
 
 def get_stores(request: Request) -> Stores:
-    return request.app.state.stores  # type: ignore[no-any-return]
+    return request.app.state.stores
 
 
 Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]

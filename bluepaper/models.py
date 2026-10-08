@@ -156,7 +156,7 @@ class ErrorResponse(BaseModel):
 
 
 class ScanResult:
-    __slots__ = ("hits", "catalog_version", "timed_out")
+    __slots__ = ("catalog_version", "hits", "timed_out")
 
     def __init__(
         self,

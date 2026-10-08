@@ -106,7 +106,7 @@ class MemoryQueue:
 
 
 class _QueueItem:
-    __slots__ = ("conversion_id", "visible_at", "dequeue_count", "pop_receipt")
+    __slots__ = ("conversion_id", "dequeue_count", "pop_receipt", "visible_at")
 
     def __init__(
         self,

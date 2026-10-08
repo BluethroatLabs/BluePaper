@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#070707" />
+    <title>How BluePaper Works: Sandbox, Pixels, and Byte Indicators</title>
+    <meta
+      name="description"
+      content="The BluePaper pipeline: a disposable microVM renders the document to pixels, a trusted worker rebuilds the PDF, and a parser-free scan lists raw byte indicators."
+    />
+    <link rel="canonical" href="{{SITE_URL}}/how-it-works" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="BluePaper by Bluethroat Labs" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="{{SITE_URL}}/how-it-works" />
+    <meta property="og:title" content="How BluePaper Works: Sandbox, Pixels, and Byte Indicators" />
+    <meta
+      property="og:description"
+      content="The BluePaper pipeline: a disposable microVM renders the document to pixels, a trusted worker rebuilds the PDF, and a parser-free scan lists raw byte indicators."
+    />
+    <meta property="og:image" content="{{SITE_URL}}/ui/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="BluePaper: rebuild untrusted documents from pixels" />
+    <meta property="article:modified_time" content="2026-09-29" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="How BluePaper Works: Sandbox, Pixels, and Byte Indicators" />
+    <meta
+      name="twitter:description"
+      content="The BluePaper pipeline: a disposable microVM renders the document to pixels, a trusted worker rebuilds the PDF, and a parser-free scan lists raw byte indicators."
+    />
+    <meta name="twitter:image" content="{{SITE_URL}}/ui/og-image.png" />
+    <meta name="twitter:image:alt" content="BluePaper: rebuild untrusted documents from pixels" />
+    <link rel="icon" href="/ui/favicon-96x96.png" sizes="96x96" type="image/png" />
+    <link rel="icon" href="/ui/favicon.svg" type="image/svg+xml" />
+    <link rel="shortcut icon" href="/ui/favicon.ico" />
+    <link rel="apple-touch-icon" href="/ui/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/ui/site.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="BluePaper" />
+    <script src="/ui/theme-boot.js"></script>
+    <link rel="stylesheet" href="/ui/styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "TechArticle",
+            "@id": "{{SITE_URL}}/how-it-works#article",
+            "headline": "How BluePaper works",
+            "description": "The BluePaper pipeline: a disposable microVM renders the document to pixels, a trusted worker rebuilds the PDF, and a parser-free scan lists raw byte indicators.",
+            "url": "{{SITE_URL}}/how-it-works",
+            "inLanguage": "en",
+            "dateModified": "2026-09-29",
+            "image": "{{SITE_URL}}/ui/og-image.png",
+            "isPartOf": { "@id": "{{SITE_URL}}/#website" },
+            "about": { "@id": "{{SITE_URL}}/#app" },
+            "author": {
+              "@type": "Organization",
+              "@id": "https://bluethroatlabs.com/#organization",
+              "name": "Bluethroat Labs",
+              "url": "https://bluethroatlabs.com/"
+            },
+            "publisher": { "@id": "https://bluethroatlabs.com/#organization" }
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "BluePaper", "item": "{{SITE_URL}}/" },
+              { "@type": "ListItem", "position": 2, "name": "How it works", "item": "{{SITE_URL}}/how-it-works" }
+            ]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+    <div class="frame">
+      <header class="topbar">
+        <a class="brand" href="https://bluethroatlabs.com/" target="_blank" rel="noopener noreferrer" aria-label="Bluethroat Labs website">
+          <img src="/ui/assets/bluethroat-wordmark.svg" alt="Bluethroat Labs" width="198" height="32" />
+        </a>
+        <nav class="top-actions" aria-label="Main navigation">
+          <a href="/about">About</a>
+          <a href="/#convert">Convert</a>
+          <a href="/how-it-works" aria-current="page">How it works</a>
+          <a href="/for-agents">For agents</a>
+          <button id="theme" type="button" aria-label="Switch to light appearance" title="Switch to light appearance">
+            <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>
+            <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1a9 9 0 1 0 10 10Z"/></svg>
+          </button>
+        </nav>
+      </header>
+
+      <main id="content">
+        <section class="hero hero--page" aria-labelledby="page-title">
+          <div class="hero-texture" aria-hidden="true"></div>
+          <h1 id="page-title">
+            How it
+            <span>works</span>
+          </h1>
+          <div class="hero-caption">
+            <p>
+              A disposable sandbox renders the document to pixels. A trusted
+              worker rebuilds the PDF. A parser-free scan lists what the original
+              bytes contained.
+            </p>
+          </div>
+        </section>
+
+        <div class="doc">
+          <nav class="toc" aria-label="On this page">
+            <p class="toc-title">On this page</p>
+            <ol>
+              <li><a href="#principle">The principle</a></li>
+              <li><a href="#lifecycle">Lifecycle of a conversion</a></li>
+              <li><a href="#isolation">Isolation</a></li>
+              <li><a href="#byte-scan">The byte-indicator scan</a></li>
+              <li><a href="#report">Reading the report</a></li>
+              <li><a href="#limits">Limits and budgets</a></li>
+              <li><a href="#not-covered">What BluePaper does not do</a></li>
+              <li><a href="#facts">Current version</a></li>
+            </ol>
+          </nav>
+
+          <article class="prose" aria-labelledby="page-title">
+            <section id="principle" aria-labelledby="principle-title">
+              <h2 id="principle-title">The principle</h2>
+              <p>
+                Safety comes from <em>destruction</em>, not detection. BluePaper
+                does not try to decide whether a document is malicious. It
+                throws the document away and keeps only what it looked like.
+              </p>
+              <p>
+                Every page is rendered to raw RGB pixels inside an isolated
+                sandbox. A new PDF is built from those pixels. JavaScript,
+                macros, embedded executables, malformed-parser exploits, and most
+                metadata have nowhere to live in a grid of pixels, so they do not
+                reach the output.
+              </p>
+              <p>
+                This is the approach of
+                <a href="https://github.com/freedomofpress/dangerzone">Dangerzone</a>.
+                BluePaper keeps Dangerzone’s <code>doc_to_pixels</code> and
+                <code>pixels_to_pdf</code> close to upstream and runs them as a
+                network service.
+              </p>
+            </section>
+
+            <section id="lifecycle" aria-labelledby="lifecycle-title">
+              <h2 id="lifecycle-title">Lifecycle of a conversion</h2>
+              <ol>
+                <li>
+                  <strong>Pin.</strong> The API checks the file type and size,
+                  hashes the bytes with SHA-256, stores them as an immutable
+                  blob, records the job, queues it, and returns a conversion id.
+                  It never opens the file with a document parser.
+                </li>
+                <li>
+                  <strong>Scan and sandbox, in parallel.</strong> A worker leases
+                  the job. It starts the byte-indicator scan on the original
+                  bytes and creates a fresh sandbox from a clean disk image.
+                </li>
+                <li>
+                  <strong>Render.</strong> Inside the sandbox,
+                  <code>doc_to_pixels</code> opens the document with LibreOffice,
+                  Poppler, and Dangerzone’s other converters and streams each
+                  page out as width, height, and RGB bytes.
+                </li>
+                <li>
+                  <strong>Destroy.</strong> The worker deletes the sandbox. A
+                  sandbox that has seen a document is never snapshotted or
+                  reused.
+                </li>
+                <li>
+                  <strong>Rebuild.</strong> On the trusted side,
+                  <code>pixels_to_pdf</code> assembles a new PDF from the pixels,
+                  adds an OCR text layer if you asked for one, and compresses it.
+                </li>
+                <li>
+                  <strong>Publish.</strong> The worker stores the safe PDF and
+                  the JSON report. The console polls the status, then shows the
+                  report and a preview.
+                </li>
+              </ol>
+
+              <h3>Two planes</h3>
+              <table class="hits">
+                <thead>
+                  <tr>
+                    <th>Plane</th>
+                    <th>What runs there</th>
+                    <th>Trust</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Sandbox</td>
+                    <td><code>doc_to_pixels</code> (LibreOffice, pdftoppm, and others)</td>
+                    <td>Untrusted. Document in, RGB page stream out.</td>
+                  </tr>
+                  <tr>
+                    <td>Worker</td>
+                    <td><code>pixels_to_pdf</code>, optional Tesseract OCR, compression, byte scan</td>
+                    <td>Trusted. Sees pixels and raw bytes, never parses the document.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+
+            <section id="isolation" aria-labelledby="isolation-title">
+              <h2 id="isolation-title">Isolation</h2>
+              <p>
+                Each conversion gets its own Azure Container Apps sandbox, a
+                hardware-isolated microVM. It replaces Dangerzone’s local Podman
+                and gVisor stack.
+              </p>
+              <ul>
+                <li>All outbound network access is denied.</li>
+                <li>
+                  The sandbox has no identity that can read storage. The worker
+                  copies the document in and the pixel stream out; the sandbox
+                  never talks to storage itself.
+                </li>
+                <li>
+                  It starts from a clean image, or from a snapshot taken before
+                  any document was introduced, and is deleted when the job ends.
+                </li>
+                <li>
+                  It runs at the largest resource tier (4 vCPU, 8 GB), because
+                  LibreOffice is heavy.
+                </li>
+              </ul>
+              <p>
+                A sandbox compromise must not yield network access, secrets, or
+                another job’s files. That is the boundary the design is built
+                around.
+              </p>
+            </section>
+
+            <section id="byte-scan" aria-labelledby="byte-scan-title">
+              <h2 id="byte-scan-title">The byte-indicator scan</h2>
+              <p>
+                While the sandbox renders, the trusted worker scans the original
+                bytes against a fixed, versioned pattern catalog. There are no
+                user-supplied patterns. Matching is linear-time with a wall-clock
+                cap, because regular-expression denial of service is in the
+                threat model.
+              </p>
+              <p>
+                The scan uses no PDF parser, no OLE parser, and no decompression.
+                <code>#HH</code> escapes in PDF names are expanded, so
+                <code>/Java#53cript</code> counts as <code>/JavaScript</code>.
+                Other encodings are not interpreted.
+              </p>
+
+              <h3>Catalog 1.0.0</h3>
+              <table class="hits">
+                <thead>
+                  <tr>
+                    <th>Group</th>
+                    <th>Indicators</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>PDF</td>
+                    <td>
+                      <code>/JavaScript</code>, <code>/JS</code>,
+                      <code>/OpenAction</code>, <code>/AA</code>,
+                      <code>/Launch</code>, <code>/EmbeddedFile</code>,
+                      <code>/RichMedia</code>, <code>/XFA</code>,
+                      <code>/SubmitForm</code>, <code>/GoToR</code>,
+                      <code>/URI</code>, <code>/Encrypt</code>,
+                      <code>/ObjStm</code>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Office</td>
+                    <td>
+                      <code>vbaProject.bin</code>, OLE compound-file magic, DDE
+                      markers, external relationship and <code>oleObject</code>
+                      markers, ActiveX markers
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Polyglot</td>
+                    <td>
+                      <code>%PDF</code> not at offset 0, ZIP and PDF in one file,
+                      HTML or HTA markers alongside a document
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p>
+                This is deliberately shallower than PDFiD-style object
+                inspection. The point is a cheap, parser-free list of raw byte
+                indicators.
+              </p>
+            </section>
+
+            <section id="report" aria-labelledby="report-title">
+              <h2 id="report-title">Reading the report</h2>
+              <p>
+                Each hit records the indicator id, how many times it appeared,
+                and the byte offset of the first match.
+              </p>
+              <h3>Hits and a safe PDF</h3>
+              <p>
+                Raw byte indicators were found. A match is not proof that an
+                active construct was present; the same bytes can occur in
+                metadata or other inert data. The safe PDF was rebuilt from
+                pixels either way.
+              </p>
+              <h3>No hits and a safe PDF</h3>
+              <p>
+                No obvious indicators were found. Absence of patterns is not a
+                malware verdict: compression and encodings can hide them.
+                Conversion still rebuilt the document from pixels.
+              </p>
+              <h3>Conversion failed</h3>
+              <p>
+                The report leads with “No safe PDF was produced.” It does not
+                claim that anything was stripped. If the scan finished, its hits
+                are still listed. A failure is not a malicious verdict:
+                timeouts, sandbox kills, and exhausted budgets all fail.
+              </p>
+              <h3>conversion_justified</h3>
+              <p>
+                The API report includes <code>conversion_justified</code>. It is
+                <code>true</code> only when conversion succeeded and at least one
+                indicator was found. It means indicators were present, not that
+                an active construct was.
+              </p>
+            </section>
+
+            <section id="limits" aria-labelledby="limits-title">
+              <h2 id="limits-title">Limits and budgets</h2>
+              <p>
+                The operator configures these. The values below are the defaults.
+              </p>
+              <dl class="facts">
+                <div>
+                  <dt>Upload size</dt>
+                  <dd>32 MiB</dd>
+                </div>
+                <div>
+                  <dt>Conversion time</dt>
+                  <dd>10 minutes</dd>
+                </div>
+                <div>
+                  <dt>Byte scan time</dt>
+                  <dd>30 seconds</dd>
+                </div>
+                <div>
+                  <dt>Pixel stream</dt>
+                  <dd>512 MiB</dd>
+                </div>
+                <div>
+                  <dt>Running jobs</dt>
+                  <dd>4; while 4 are running, new uploads return HTTP 429</dd>
+                </div>
+                <div>
+                  <dt>Queue depth</dt>
+                  <dd>100; a full queue returns HTTP 503</dd>
+                </div>
+              </dl>
+              <p>
+                Unsupported file types return HTTP 415 before a sandbox is
+                created. Files that are too large return 413.
+              </p>
+            </section>
+
+            <section id="not-covered" aria-labelledby="not-covered-title">
+              <h2 id="not-covered-title">What BluePaper does not do</h2>
+              <ul>
+                <li>
+                  It does not give a malicious or clean verdict, and it does not
+                  replace antivirus.
+                </li>
+                <li>
+                  It does not detect visual phishing. A fake login page, a lure,
+                  or a QR code on the page is reproduced faithfully as pixels.
+                </li>
+                <li>
+                  It does not keep links, form fields, attachments, or digital
+                  signatures. They are not pixels.
+                </li>
+                <li>
+                  It does not parse or detonate the original for forensics: no
+                  dual-parser PDF analysis, no JavaScript analysis, no reader
+                  detonation.
+                </li>
+                <li>It does not fetch URLs on your behalf.</li>
+                <li>
+                  It does not keep your file on your machine. If a document must
+                  never leave your computer, use Dangerzone locally.
+                </li>
+              </ul>
+            </section>
+
+            <section id="facts" aria-labelledby="facts-title">
+              <h2 id="facts-title">Current version</h2>
+              <dl class="facts">
+                <div>
+                  <dt>Service</dt>
+                  <dd>BluePaper 0.1.0</dd>
+                </div>
+                <div>
+                  <dt>Pattern catalog</dt>
+                  <dd>1.0.0</dd>
+                </div>
+                <div>
+                  <dt>Report schema</dt>
+                  <dd>1.0.0</dd>
+                </div>
+                <div>
+                  <dt>Converters</dt>
+                  <dd>Dangerzone <code>doc_to_pixels</code> and <code>pixels_to_pdf</code></dd>
+                </div>
+                <div>
+                  <dt>License</dt>
+                  <dd>AGPL-3.0</dd>
+                </div>
+                <div>
+                  <dt>Source</dt>
+                  <dd>
+                    <a href="https://github.com/BluethroatLabs/BluePaper">github.com/BluethroatLabs/BluePaper</a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Last updated</dt>
+                  <dd><time datetime="2026-09-29">2026-09-29</time></dd>
+                </div>
+              </dl>
+            </section>
+          </article>
+        </div>
+      </main>
+
+      <footer class="page-footer">
+        <div class="footer-brand"><span>A document tool by</span><a href="https://bluethroatlabs.com/" target="_blank" rel="noopener noreferrer"><img src="/ui/assets/bluethroat-wordmark.svg" alt="Bluethroat Labs" width="124" height="20" /></a><span>· AGPL-3.0</span></div>
+        <nav class="footer-links" aria-label="Policies and support">
+          <a href="/about">About</a><a href="/about#faq">FAQ</a><a href="/how-it-works">How it works</a><a href="/for-agents">For agents</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/support">Support</a><a href="/docs">API</a><a id="source-link" href="https://github.com/BluethroatLabs/BluePaper">Corresponding source</a>
+        </nav>
+      </footer>
+    </div>
+    <script src="/ui/theme.js" defer></script>
+  </body>
+</html>

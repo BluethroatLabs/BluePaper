@@ -109,6 +109,16 @@ infra:
         apiImage="$acr/{{ api_name }}:{{ tag }}" \
         workerImage="$acr/{{ worker_name }}:{{ tag }}" \
         "${disk_args[@]}"
+    # The template image stays `:latest`, so Bicep does not start a new
+    # revision or pull the digest just pushed. Update each app explicitly.
+    for name in "{{ api_name }}" "{{ worker_name }}"; do
+      az containerapp update \
+        --subscription "{{ subscription }}" \
+        --resource-group "{{ rg }}" \
+        --name "$name" \
+        --image "$acr/$name:{{ tag }}" \
+        -o none
+    done
 
 # Create the sandbox group with `aca` when the Bicep preview resource is unavailable.
 sandbox-group:

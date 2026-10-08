@@ -10,10 +10,12 @@ Requires az login / managed identity and Container Apps SandboxGroup Data Owner.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import time
-import traceback
+
+log = logging.getLogger("bluepaper.spike")
 
 
 def _env(name: str) -> str | None:
@@ -21,6 +23,7 @@ def _env(name: str) -> str | None:
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO)
     subscription_id = _env("BLUEPAPER_AZURE_SUBSCRIPTION_ID") or _env(
         "AZURE_SUBSCRIPTION_ID"
     )
@@ -100,7 +103,7 @@ def main() -> int:
         )
         findings["exec_exit_code"] = result.exit_code
         findings["exec_stdout_bytes"] = len(result.stdout or b"")
-        findings["exec_stderr_bytes"] = len((result.stderr or b""))
+        findings["exec_stderr_bytes"] = len(result.stderr or b"")
 
         info = sandbox.stat_file("/tmp/bluepaper-spike-out.bin")
         findings["stat_size"] = getattr(info, "size", None)
@@ -113,7 +116,7 @@ def main() -> int:
         print(json.dumps(findings, indent=2, default=str))
         return 0 if findings["roundtrip_ok"] and result.exit_code == 0 else 1
     except Exception:
-        traceback.print_exc()
+        log.exception("ACA spike failed")
         findings["error"] = "exception"
         print(json.dumps(findings, indent=2, default=str))
         return 1
@@ -123,7 +126,7 @@ def main() -> int:
                 sandbox.delete()
                 findings["deleted"] = True
             except Exception:
-                traceback.print_exc()
+                log.exception("failed to delete spike sandbox")
                 print("ERROR: failed to delete spike sandbox", file=sys.stderr)
         client.close()
 

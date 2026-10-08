@@ -193,6 +193,11 @@ button:disabled {
   text-decoration: none;
 }
 
+.nav-link[aria-current="page"] {
+  text-decoration: underline;
+  text-underline-offset: 6px;
+}
+
 .nav-icon {
   display: flex;
   align-items: center;
@@ -778,6 +783,7 @@ select {
 
 .footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 1rem;
   padding: 1.25rem 1.5rem;
@@ -786,6 +792,272 @@ select {
 }
 
 .footer p {
+  margin: 0;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+}
+
+.text-link {
+  text-decoration: underline;
+  text-decoration-color: var(--ring);
+  text-underline-offset: 4px;
+}
+
+.text-link:hover {
+  text-decoration-color: var(--foreground);
+}
+
+.faq {
+  border-bottom: 1px solid var(--border);
+}
+
+.faq-item + .faq-item {
+  border-top: 1px solid var(--border);
+}
+
+.faq-item summary {
+  display: grid;
+  grid-template-columns: 3rem 1fr auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 1.1rem 1.5rem;
+  font-size: 1.05rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-item summary::after {
+  content: "+";
+  color: var(--muted-foreground);
+}
+
+.faq-item[open] summary::after {
+  content: "\2212";
+}
+
+.faq-item summary:hover {
+  background: var(--muted);
+}
+
+.faq-num {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+}
+
+.faq-answer {
+  max-width: 48rem;
+  padding: 0 1.5rem 1.5rem 5.5rem;
+  color: var(--muted-foreground);
+}
+
+.faq-answer p,
+.faq-answer ul {
+  margin: 0 0 0.75rem;
+}
+
+.faq-answer > :last-child {
+  margin-bottom: 0;
+}
+
+.faq-answer ul {
+  padding-left: 1.25rem;
+}
+
+.faq-answer code,
+.prose code {
+  font-size: 0.9em;
+  color: var(--foreground);
+}
+
+.faq-answer strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.faq-more {
+  margin: 0;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.hero--page {
+  min-height: 20rem;
+}
+
+.hero--page h1 {
+  font-size: clamp(3.5rem, 8vw, 6rem);
+}
+
+.hero--page h1 span {
+  padding-left: 12vw;
+}
+
+.copy em {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.2em;
+}
+
+.doc {
+  display: grid;
+  grid-template-columns: 18rem 1fr;
+  border-bottom: 1px solid var(--border);
+}
+
+.toc {
+  padding: 2rem 1.5rem;
+  border-right: 1px solid var(--border);
+}
+
+.toc-title {
+  margin: 0 0 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.toc ol {
+  position: sticky;
+  top: 1.5rem;
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.toc a {
+  color: var(--muted-foreground);
+}
+
+.toc a:hover {
+  color: var(--foreground);
+}
+
+.prose {
+  min-width: 0;
+  padding: 2rem 1.5rem 3rem;
+}
+
+.prose section {
+  max-width: 48rem;
+  scroll-margin-top: 1.5rem;
+}
+
+.prose section + section {
+  margin-top: 3rem;
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.prose h2 {
+  margin: 0 0 1.25rem;
+  font-family: var(--font-serif);
+  font-size: clamp(2.25rem, 4vw, 3rem);
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.prose h3 {
+  margin: 2rem 0 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.prose p,
+.prose ul,
+.prose ol,
+.prose pre,
+.prose table,
+.prose blockquote,
+.prose dl {
+  margin: 0 0 1rem;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.25rem;
+}
+
+.prose li + li {
+  margin-top: 0.5rem;
+}
+
+.prose em {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.2em;
+}
+
+.prose a {
+  text-decoration: underline;
+  text-decoration-color: var(--ring);
+  text-underline-offset: 4px;
+}
+
+.prose a:hover {
+  text-decoration-color: var(--foreground);
+}
+
+.prose pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.prose pre code {
+  font-size: inherit;
+}
+
+.prose .hits td {
+  vertical-align: top;
+}
+
+.prose blockquote {
+  padding: 0.25rem 0 0.25rem 1.25rem;
+  border-left: 1px solid var(--foreground);
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  line-height: 1.35;
+}
+
+.facts {
+  display: grid;
+  gap: 0;
+}
+
+.facts div {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.facts dt {
+  color: var(--muted-foreground);
+}
+
+.facts dd {
   margin: 0;
 }
 
@@ -842,6 +1114,45 @@ select {
   .job-actions .primary,
   .job-actions .ghost {
     width: 100%;
+  }
+
+  .hero--page h1 span {
+    padding-left: 0;
+  }
+
+  .doc {
+    grid-template-columns: 1fr;
+  }
+
+  .toc {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .toc ol {
+    position: static;
+  }
+
+  .toc,
+  .prose,
+  .faq-item summary,
+  .faq-more {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+
+  .faq-item summary {
+    grid-template-columns: 2.25rem 1fr auto;
+    gap: 0.75rem;
+  }
+
+  .faq-answer {
+    padding: 0 1.25rem 1.25rem;
+  }
+
+  .facts div {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
   }
 }
 
@@ -943,7 +1254,7 @@ html:not(.light) .product-mark img { filter: invert(1); }
 .scroll-toolbar button { min-width: 48px; min-height: 48px; border: 1px solid #555; background: #0a0a0a; color: #eee; font-size: 32px; line-height: 1; pointer-events: auto; }
 .paper-scroll { width: min(880px, calc(100% - 100px)); margin: 0 auto 40px; border: solid transparent; border-width: 100px 64px 92px; border-image: url("assets/privacy-scroll.png") 230 125 215 125 fill / 100px 64px 92px / 0 stretch; padding: 0 16px; color: #161616; filter: drop-shadow(0 18px 20px #0008); }
 .scroll-header { padding: 0 8px 20px; text-align: center; }
-.scroll-header h2 { margin: 0 0 20px; font-family: var(--font-serif); font-size: clamp(2.5rem, 5vw, 3.75rem); font-weight: 400; line-height: 1.15; }
+.scroll-header h1, .scroll-header h2 { margin: 0 0 20px; font-family: var(--font-serif); font-size: clamp(2.5rem, 5vw, 3.75rem); font-weight: 400; line-height: 1.15; }
 .scroll-header p { margin: 0; font-size: 1.125rem; line-height: 1.6; }
 .scroll-copy { padding: 0 8px; font-size: 1rem; line-height: 1.7; }
 .scroll-copy details { border-top: 1px solid #16161630; }
@@ -955,6 +1266,27 @@ html:not(.light) .product-mark img { filter: invert(1); }
 .scroll-copy details[open] { padding-bottom: 14px; }
 .scroll-copy details p { margin: 0; }
 .scroll-footer { padding: 18px 0 0; text-align: center; font-size: 1.25rem; font-family: var(--font-serif); }
+.frame > .scroll-page { display: block; padding-top: 40px; background: linear-gradient(#0006, #0006), url("assets/footer-bg-dark.webp") center / cover fixed, #111; }
+.scroll-page .scroll-copy h2 { margin: 32px 0 16px; font-family: var(--font-serif); font-size: 2rem; font-weight: 400; line-height: 1.2; }
+.scroll-page .contract { display: block; border: 0; background: transparent; }
+.scroll-page .stat { padding: 0 0 20px; border: 0; background: transparent; }
+.scroll-page .stat-num { margin: 0; font-size: 4rem; }
+.scroll-page .stat-label, .scroll-page .copy { color: inherit; }
+.scroll-page .copy { padding: 0; }
+.scroll-page .copy p + p { margin-top: 16px; }
+.scroll-page .faq { border: 0; }
+.scroll-page .faq-item { border: 0; }
+.scroll-page .faq-item + .faq-item { border-top: 1px solid #16161630; }
+.scroll-page .faq-item summary:hover { background: #1616160a; }
+.scroll-page .faq-item summary::after, .scroll-page .faq-answer code, .scroll-page .faq-answer strong { color: inherit; }
+.scroll-page .text-link { text-decoration-color: currentColor; }
+.scroll-page .faq-num { display: none; }
+.scroll-page .faq-answer { padding: 0 0 16px; color: inherit; }
+.scroll-page .faq-answer p + p, .scroll-page .faq-answer ul { margin-top: 12px; }
+.scroll-page code { overflow-wrap: anywhere; }
+.scroll-page :focus-visible { outline-color: currentColor; }
+.scroll-page :target { scroll-margin-top: 24px; }
+.scroll-page ::selection { background: #161616; color: #f5ebd1; }
 
 @media (max-width: 860px) {
   .intro-inner { padding: 28px 20px; }
@@ -979,6 +1311,19 @@ html:not(.light) .product-mark img { filter: invert(1); }
   .scroll-dialog { width: calc(100% - 16px); max-width: calc(100% - 16px); max-height: calc(100dvh - 16px); }
   .scroll-toolbar { min-height: 56px; padding: 8px 10px 0; }
   .paper-scroll { width: calc(100% - 8px); margin-bottom: 24px; border-width: 64px 22px 60px; border-image-width: 64px 22px 60px; padding: 0 12px; }
+}
+/* Main's documentation pages use the redesign's plain card surfaces. */
+.hero--page { margin-top: 16px; background: var(--card); }
+.hero--page .hero-texture { display: none; }
+.hero--page h1 span { padding-left: 0; }
+.top-actions { flex-wrap: wrap; }
+@media (min-width: 581px) and (max-width: 960px) {
+  .topbar { flex-wrap: wrap; }
+  .topbar .brand { width: 100%; border-right: 0; border-bottom: 1px solid var(--border); }
+  .top-actions { width: 100%; justify-content: flex-end; }
+}
+@media (max-width: 580px) {
+  .top-actions > a, .top-actions > button { flex: 1 0 auto; min-height: 52px; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 @media (forced-colors: active) { .paper-scroll { border-image: none; background: Canvas; color: CanvasText; filter: none; } }

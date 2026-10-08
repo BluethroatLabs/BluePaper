@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 CATALOG_VERSION = "1.0.0"
@@ -41,6 +41,7 @@ def caveat_for(*, succeeded: bool, hit_count: int) -> str:
     if succeeded:
         return HITS_CAVEAT if hit_count else ZERO_HITS_CAVEAT
     return FAILED_HITS_CAVEAT if hit_count else FAILED_NO_HITS_CAVEAT
+
 
 SUPPORTED_EXTENSIONS = frozenset(
     {
@@ -103,6 +104,10 @@ def report_blob_key(conversion_id: str) -> str:
     return f"conversions/{conversion_id}/report.json"
 
 
+# Substituted verbatim into HTML, JSON-LD, and XML, so no quotes, `&`, or `<`.
+_PUBLIC_URL = re.compile(r"https?://[A-Za-z0-9.-]+(?::\d{1,5})?(?:/[A-Za-z0-9._~/-]*)?")
+
+
 def extension_of(filename: str | None) -> str:
     if not filename:
         return ""
@@ -116,7 +121,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    api_key: str = Field(min_length=1)
+    # Empty default is rejected. The real value comes from BLUEPAPER_API_KEY;
+    # the default exists so Settings() type-checks when the env supplies it.
+    api_key: str = Field(default="", min_length=1, validate_default=True)
     max_upload_bytes: int = 32 * 1024 * 1024
     max_concurrent_jobs: int = 4
     max_queue_depth: int = 100
@@ -143,6 +150,8 @@ class Settings(BaseSettings):
     source_url: str = "https://github.com/BluethroatLabs/BluePaper"
     source_commit: str | None = None
     source_digest: str | None = None
+    # Canonical origin for page metadata, the sitemap, and llms.txt.
+    public_url: str = "https://bluepaper.bluethroatlabs.com"
     turnstile_secret: str | None = Field(
         default=None,
         validation_alias=AliasChoices("TURNSTILE_SECRET", "BLUEPAPER_TURNSTILE_SECRET"),
@@ -153,6 +162,14 @@ class Settings(BaseSettings):
             "TURNSTILE_HOSTNAMES", "BLUEPAPER_TURNSTILE_HOSTNAMES"
         ),
     )
+
+    @field_validator("public_url")
+    @classmethod
+    def _check_public_url(cls, value: str) -> str:
+        url = value.strip().rstrip("/")
+        if not _PUBLIC_URL.fullmatch(url):
+            raise ValueError("public_url must be an absolute http(s) URL")
+        return url
 
 
 def _nonempty(value: str | None) -> str | None:

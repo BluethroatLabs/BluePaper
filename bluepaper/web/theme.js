@@ -2,7 +2,6 @@
   const root = document.documentElement;
   const button = document.getElementById("theme");
   const themeColor = document.querySelector('meta[name="theme-color"]');
-  const dialog = document.getElementById("about-dialog");
 
   function applyTheme(light, persist) {
     root.classList.toggle("light", light);
@@ -20,10 +19,5 @@
 
   applyTheme(root.classList.contains("light"), false);
   button?.addEventListener("click", () => applyTheme(!root.classList.contains("light"), true));
-  document.querySelector("[data-open-about]")?.addEventListener("click", () => dialog?.showModal());
-  document.querySelector("[data-close-about]")?.addEventListener("click", () => dialog?.close());
-  if (dialog && window.location.hash === "#about") dialog.showModal();
-  dialog?.addEventListener("click", (event) => {
-    if (event.target === dialog) dialog.close();
-  });
+
 })();

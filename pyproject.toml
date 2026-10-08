@@ -19,6 +19,7 @@ include = [
     { path = "install/linux/press.freedom.dangerzone.*", format = "sdist" },
     { path = "README.md", format = "sdist" },
     { path = "bluepaper/web/*", format = ["sdist", "wheel"] },
+    { path = "bluepaper/pages/*", format = ["sdist", "wheel"] },
 ]
 
 [tool.poetry.dependencies]

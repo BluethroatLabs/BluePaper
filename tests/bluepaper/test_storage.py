@@ -8,6 +8,7 @@ from bluepaper.config import Settings
 from bluepaper.models import ConversionRecord, ConversionStatus, QueueLease, utc_now
 from bluepaper.storage import build_stores
 from bluepaper.storage.azure import AzureBlobStore, AzureQueue, AzureTableStore
+from bluepaper.storage.base import Stores
 from bluepaper.storage.memory import memory_stores
 
 
@@ -32,7 +33,9 @@ def test_build_stores_memory(settings: Settings) -> None:
     assert stores.blobs.get("k") is None
 
 
-def test_build_stores_azure_dispatches(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_stores_azure_dispatches(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
     sentinel = memory_stores()
     captured: dict[str, object] = {}
 
@@ -49,7 +52,7 @@ def test_build_stores_azure_dispatches(settings: Settings, monkeypatch: pytest.M
     assert captured["blob_container"] == "papers"
 
 
-def test_memory_table_entity_roundtrip(stores) -> None:
+def test_memory_table_entity_roundtrip(stores: Stores) -> None:
     record = ConversionRecord(
         id="cnv_round",
         status=ConversionStatus.succeeded,
@@ -77,7 +80,7 @@ def test_memory_table_entity_roundtrip(stores) -> None:
     assert stores.table.get("cnv_round") is None
 
 
-def test_memory_count_by_status(stores) -> None:
+def test_memory_count_by_status(stores: Stores) -> None:
     stores.table.create(_record("cnv_q1"))
     stores.table.create(_record("cnv_r1", ConversionStatus.running))
     stores.table.create(_record("cnv_r2", ConversionStatus.running))
@@ -86,7 +89,7 @@ def test_memory_count_by_status(stores) -> None:
     assert stores.table.count_by_status("failed") == 0
 
 
-def test_memory_queue_lease_hides_message(stores) -> None:
+def test_memory_queue_lease_hides_message(stores: Stores) -> None:
     stores.queue.enqueue("cnv_a")
     lease = stores.queue.lease(60)
     assert lease is not None
@@ -97,7 +100,7 @@ def test_memory_queue_lease_hides_message(stores) -> None:
     assert stores.queue.lease(1) is None
 
 
-def test_memory_queue_wrong_receipt_does_not_complete(stores) -> None:
+def test_memory_queue_wrong_receipt_does_not_complete(stores: Stores) -> None:
     stores.queue.enqueue("cnv_a")
     lease = stores.queue.lease(0)
     assert lease is not None
@@ -114,13 +117,15 @@ def test_memory_queue_wrong_receipt_does_not_complete(stores) -> None:
     assert again.dequeue_count == lease.dequeue_count + 1
 
 
-def test_memory_blob_delete_missing_is_ok(stores) -> None:
+def test_memory_blob_delete_missing_is_ok(stores: Stores) -> None:
     stores.blobs.delete("no-such-key")
     assert stores.blobs.get("no-such-key") is None
 
 
 class _FakeBlobClient:
-    def __init__(self, store: dict[str, bytes], key: str, missing_exc: type[Exception]) -> None:
+    def __init__(
+        self, store: dict[str, bytes], key: str, missing_exc: type[Exception]
+    ) -> None:
         self._store = store
         self._key = key
         self._missing_exc = missing_exc
@@ -145,9 +150,17 @@ class _FakeContainer:
 
     def create_container(self) -> None:
         if self.fail_create:
-            raise RuntimeError("already exists")
+            from azure.core.exceptions import ResourceExistsError
 
-    def upload_blob(self, name: str, data: bytes, overwrite: bool = True, content_settings: object = None) -> None:
+            raise ResourceExistsError("already exists")
+
+    def upload_blob(
+        self,
+        name: str,
+        data: bytes,
+        overwrite: bool = True,
+        content_settings: object = None,
+    ) -> None:
         self.blobs[name] = data
         self.uploads.append(name)
 
@@ -176,7 +189,7 @@ class _FakeTable:
             raise self.missing_exc("missing")
         del self.rows[row_key]
 
-    def query_entities(self, query: str):
+    def query_entities(self, query: str) -> object:
         status = query.split("'")[1]
         for entity in self.rows.values():
             if entity["Status"] == status:
@@ -189,7 +202,9 @@ class _FakeQueue:
         self.deleted: list[object] = []
 
     def create_queue(self) -> None:
-        raise RuntimeError("exists")
+        from azure.core.exceptions import ResourceExistsError
+
+        raise ResourceExistsError("exists")
 
     def send_message(self, conversion_id: str) -> None:
         self.messages.append(
@@ -200,7 +215,9 @@ class _FakeQueue:
             )
         )
 
-    def receive_messages(self, max_messages: int, visibility_timeout: int):
+    def receive_messages(
+        self, max_messages: int, visibility_timeout: int
+    ) -> list[SimpleNamespace]:
         if not self.messages:
             return []
         return [self.messages.pop(0)]
@@ -219,13 +236,17 @@ def missing_exc(monkeypatch: pytest.MonkeyPatch) -> type[Exception]:
 
     existing = sys.modules.get("azure.core.exceptions")
     if existing is not None and hasattr(existing, "ResourceNotFoundError"):
-        return existing.ResourceNotFoundError  # type: ignore[no-any-return]
+        return existing.ResourceNotFoundError
 
     class ResourceNotFoundError(Exception):
         pass
 
+    class ResourceExistsError(Exception):
+        pass
+
     exc_mod = types.ModuleType("azure.core.exceptions")
     exc_mod.ResourceNotFoundError = ResourceNotFoundError  # type: ignore[attr-defined]
+    exc_mod.ResourceExistsError = ResourceExistsError  # type: ignore[attr-defined]
     azure_mod = sys.modules.get("azure") or types.ModuleType("azure")
     core_mod = sys.modules.get("azure.core") or types.ModuleType("azure.core")
     monkeypatch.setitem(sys.modules, "azure", azure_mod)
@@ -234,10 +255,14 @@ def missing_exc(monkeypatch: pytest.MonkeyPatch) -> type[Exception]:
     return ResourceNotFoundError
 
 
-def test_azure_blob_roundtrip(missing_exc: type[Exception], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_azure_blob_roundtrip(
+    missing_exc: type[Exception], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr("bluepaper.storage.azure._content_settings", lambda _ct: None)
     container = _FakeContainer(missing_exc, fail_create=True)
-    store = AzureBlobStore(SimpleNamespace(get_container_client=lambda _n: container), "c")
+    store = AzureBlobStore(
+        SimpleNamespace(get_container_client=lambda _n: container), "c"
+    )
     store.put("k", b"hello", "text/plain")
     assert store.get("k") == b"hello"
     assert store.get("missing") is None
@@ -248,7 +273,9 @@ def test_azure_blob_roundtrip(missing_exc: type[Exception], monkeypatch: pytest.
 
 def test_azure_table_roundtrip(missing_exc: type[Exception]) -> None:
     table = _FakeTable(missing_exc)
-    store = AzureTableStore(SimpleNamespace(create_table_if_not_exists=lambda _n: table), "t")
+    store = AzureTableStore(
+        SimpleNamespace(create_table_if_not_exists=lambda _n: table), "t"
+    )
     record = _record("cnv_az")
     store.create(record)
     got = store.get("cnv_az")
@@ -257,7 +284,9 @@ def test_azure_table_roundtrip(missing_exc: type[Exception]) -> None:
     assert store.get("missing") is None
     record.status = ConversionStatus.running
     store.update(record)
-    assert store.get("cnv_az").status == ConversionStatus.running
+    updated = store.get("cnv_az")
+    assert updated is not None
+    assert updated.status == ConversionStatus.running
     assert store.count_by_status("running") == 1
     store.delete("missing")
     store.delete("cnv_az")

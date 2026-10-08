@@ -1,0 +1,38 @@
+# BluePaper
+
+> BluePaper is a document sanitizer from Bluethroat Labs. Upload an untrusted document and receive a PDF rebuilt from pixels, plus a report of raw byte indicators found in the original. Safety comes from destruction, not detection.
+
+BluePaper is a network-service fork of Dangerzone (Freedom of the Press Foundation), licensed under AGPL-3.0. The original file is opened only inside a fresh, hardware-isolated, network-denied Azure Container Apps sandbox, which renders each page to raw pixels and is then deleted. A trusted worker builds a new PDF from those pixels, with an optional OCR text layer. In parallel, a parser-free scan lists raw byte indicators in the original, such as /JavaScript, /OpenAction, /Launch, vbaProject.bin, and DDE markers.
+
+Supported inputs: PDF; Microsoft Word, Excel, and PowerPoint; OpenDocument; Hancom HWP and HWPX; EPUB; and common images. Uploads are typically limited to 32 MiB.
+
+Important limitations:
+
+- BluePaper is not a malware scanner. It never labels a file malicious or clean.
+- Zero regexp hits is not "clean". Compression and encodings can hide indicators.
+- A hit is not proof that an active construct was present. The same bytes can occur in inert data.
+- A failed conversion produces no safe PDF and is not a malware verdict. Do not open the original as a fallback.
+- The safe PDF keeps everything visible on the page, including phishing text, links, and QR codes. Links, form fields, attachments, and digital signatures are not preserved.
+- The web console requires a human check (Cloudflare Turnstile). Agents must not automate it. Programmatic access uses the REST API with an operator-issued API key.
+- The uploaded original is stored under its SHA-256 hash in the operator's storage. Delete removes the safe PDF, report, and job record, but not the original. Do not upload material you are not authorized to share.
+
+## Use BluePaper
+
+- [Web console]({{SITE_URL}}/): Convert an untrusted document in a browser.
+- [BluePaper for agents]({{SITE_URL}}/for-agents): REST API workflow for AI agents and integrators, and how to report results.
+- [About BluePaper]({{SITE_URL}}/about): Product overview and frequently asked questions.
+
+## How it works
+
+- [How BluePaper works]({{SITE_URL}}/how-it-works): Lifecycle, isolation, the byte-indicator catalog, report semantics, limits, and what BluePaper does not do.
+
+## API reference
+
+- [OpenAPI specification]({{SITE_URL}}/openapi.json): Machine-readable API schema.
+- [Interactive API docs]({{SITE_URL}}/docs): Swagger UI.
+
+## Optional
+
+- [Source code](https://github.com/BluethroatLabs/BluePaper): AGPL-3.0 corresponding source.
+- [Dangerzone](https://dangerzone.rocks/): The desktop tool BluePaper is forked from. Use it when a document must not leave your computer.
+- [Bluethroat Labs](https://bluethroatlabs.com/)
