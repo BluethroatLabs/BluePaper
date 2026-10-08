@@ -1277,8 +1277,18 @@ html:not(.light) .product-mark img { filter: invert(1); }
 .frame > .scroll-page { display: block; padding-top: 40px; background: linear-gradient(#0006, #0006), url("assets/footer-bg-dark.webp") center / cover fixed, #111; }
 .scroll-page .scroll-copy h2 { margin: 32px 0 16px; font-family: var(--font-serif); font-size: 2rem; font-weight: 400; line-height: 1.2; }
 .scroll-page .contract { display: block; border: 0; background: transparent; }
-.scroll-page .stat { padding: 0 0 20px; border: 0; background: transparent; }
-.scroll-page .stat-num { margin: 0; font-size: 4rem; }
+.scroll-page .stat {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  margin-bottom: 24px;
+  padding: 16px 0;
+  border: 0;
+  border-block: 1px solid #16161630;
+  background: transparent;
+}
+.scroll-page .stat-num { flex: 0 0 auto; margin: 0; font-size: 4rem; }
+.scroll-page .stat-label { max-width: none; text-wrap: pretty; margin-bottom: 6px; }
 .scroll-page .stat-label, .scroll-page .copy { color: inherit; }
 .scroll-page .copy { padding: 0; }
 .scroll-page .copy p + p { margin-top: 16px; }
