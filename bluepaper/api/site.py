@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -16,13 +17,40 @@ PAGES = (
     ("/", "index.html", "2026-09-29"),
     ("/about", "about.html", "2026-09-29"),
     ("/how-it-works", "how-it-works.html", "2026-09-29"),
-    ("/for-agents", "for-agents.html", "2026-09-29"),
 )
 
 
 def render(name: str, site_url: str) -> str:
     text = (PAGES_DIR / name).read_text(encoding="utf-8")
+    if name.endswith(".html"):
+        text = render_layout(text, name=name)
     return text.replace(SITE_URL_TOKEN, site_url)
+
+
+def render_layout(page: str, *, name: str) -> str:
+    """Compose a page's metadata, content, and scripts with the shared shell.
+
+    Page fragments use CONTENT and SCRIPTS comment separators. These are trusted
+    repository templates, not user-supplied HTML.
+    """
+    head, separator, remainder = page.partition("<!-- CONTENT -->")
+    content, scripts_separator, scripts = remainder.partition("<!-- SCRIPTS -->")
+    if not separator or not scripts_separator:
+        raise ValueError(f"Missing layout separators in {name}")
+    values = {
+        "HEAD": head.strip(),
+        "CONTENT": content.strip(),
+        "SCRIPTS": scripts.strip(),
+        "MAIN_ATTRIBUTES": ' class="scroll-page"' if name == "about.html" else "",
+        "HOME_HREF": "#convert" if name == "index.html" else "/",
+        "PRODUCT_TAG": "h1" if name in ("index.html", "legal.html") else "p",
+        "ABOUT_CURRENT": ' aria-current="page"' if name == "about.html" else "",
+        "HOW_CURRENT": ' aria-current="page"' if name == "how-it-works.html" else "",
+        "AGENTS_CURRENT": ' aria-current="page"' if name == "for-agents.html" else "",
+    }
+    layout = (PAGES_DIR / "layout.html").read_text(encoding="utf-8")
+    # One substitution pass keeps page content from being interpreted as tokens.
+    return re.sub(r"{{([A-Z_]+)}}", lambda match: values[match[1]], layout)
 
 
 def robots_txt(site_url: str) -> str:

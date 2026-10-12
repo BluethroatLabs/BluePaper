@@ -11,12 +11,13 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import Response as StarletteResponse
 
 from bluepaper.api.routes import router
-from bluepaper.api.site import PAGES_DIR, mount_site
+from bluepaper.api.site import PAGES_DIR, mount_site, render_layout
 from bluepaper.config import Settings
 from bluepaper.logging import configure_logging
 from bluepaper.models import HealthResponse
@@ -67,8 +68,7 @@ Integrators send `Authorization: Bearer <api-key>` on conversion routes.
 The console at `/` does not. `POST /v1/conversions` accepts a completed
 Turnstile token instead, and that conversion id then authorizes status,
 report, PDF, and delete. Key-created conversions still require the API key.
-`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`,
-`/for-agents`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,
+`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,
 `/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.
 """.strip()
 
@@ -122,6 +122,35 @@ def create_app(
         mount_site(application, settings.public_url)
 
     if WEB_DIR.is_dir():
+        legal_template = WEB_DIR / "legal.html"
+        legal_pages = {
+            "privacy": (
+                "Privacy",
+                "How BluePaper handles uploaded documents and conversion artifacts.",
+            ),
+            "terms": ("Terms", "Terms of use and limitations for BluePaper."),
+            "support": ("Support", "How to report BluePaper issues and get help."),
+        }
+
+        @application.get(
+            "/privacy", include_in_schema=False, response_class=HTMLResponse
+        )
+        @application.get("/terms", include_in_schema=False, response_class=HTMLResponse)
+        @application.get(
+            "/support", include_in_schema=False, response_class=HTMLResponse
+        )
+        def frontend_legal(request: Request) -> HTMLResponse:
+            page_name = request.url.path.lstrip("/")
+            title, description = legal_pages[page_name]
+            body = (WEB_DIR / "legal" / f"{page_name}.html").read_text()
+            html = (
+                render_layout(legal_template.read_text(), name="legal.html")
+                .replace("{{TITLE}}", title)
+                .replace("{{DESCRIPTION}}", description)
+                .replace("{{BODY}}", body)
+            )
+            return HTMLResponse(html)
+
         application.mount("/ui", StaticFiles(directory=WEB_DIR), name="ui")
 
     return application

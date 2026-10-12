@@ -53,7 +53,7 @@
   const TURNSTILE_TEST_SITEKEY = "1x00000000000000000000AA";
 
   const els = {
-    sourceLine: document.getElementById("source-line"),
+    sourceLink: document.getElementById("source-link"),
     convertForm: document.getElementById("convert-form"),
     convertBtn: document.getElementById("convert-btn"),
     file: document.getElementById("file"),
@@ -165,12 +165,12 @@
       const short = /^[0-9a-f]{7,64}$/i.test(revision)
         ? revision.slice(0, 7)
         : revision.slice(0, 19);
-      const label = short ? ` @ ${escapeHtml(short)}` : "";
       const base = String(source.source_url || "").replace(/\/+$/, "");
       const href = /^[0-9a-f]{7,64}$/i.test(revision)
         ? `${base}/commit/${revision}`
         : base;
-      els.sourceLine.innerHTML = `<a href="/docs">API</a> · <a href="${escapeHtml(href)}">Corresponding source${label}</a>`;
+      els.sourceLink.href = href;
+      els.sourceLink.textContent = `Corresponding source${short ? ` @ ${short}` : ""}`;
     } catch {
       /* the footer already links to the repository */
     }
@@ -420,7 +420,7 @@
     state.turnstileId = window.turnstile.render(widget, {
       sitekey,
       action: "queue-conversion",
-      theme: "dark",
+      theme: document.documentElement.classList.contains("light") ? "light" : "dark",
       callback(token) {
         state.turnstileToken = token;
         setReady();
@@ -435,6 +435,15 @@
         showSubmitError("Bot check failed. Retry the widget.");
       },
     });
+  };
+
+  window.bluepaperRefreshTurnstile = function () {
+    if (!window.turnstile || state.turnstileId === null) return;
+    window.turnstile.remove(state.turnstileId);
+    state.turnstileId = null;
+    state.turnstileToken = "";
+    setReady();
+    window.bluepaperTurnstile();
   };
 
   function clearPreview() {

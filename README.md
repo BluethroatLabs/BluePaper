@@ -12,7 +12,7 @@ Integrators send `Authorization: Bearer <api-key>` on conversion routes. The con
 
 OpenAPI is unauthenticated: `GET /openapi.json` (spec) and `GET /docs` (Swagger UI). The console is `GET /`.
 
-The public site pages are `/about` (FAQ), `/how-it-works`, and `/for-agents`, with `/robots.txt`, `/sitemap.xml`, and `/llms.txt` for crawlers and AI agents. Templates live in `bluepaper/pages/`. Canonical, Open Graph, and structured-data URLs use `BLUEPAPER_PUBLIC_URL` (default `https://bluepaper.bluethroatlabs.com`); set it to the deployed origin. The social card is `bluepaper/web/og-image.png`, rendered from `assets/og-image.html`.
+The public site pages are `/about` (FAQ) and `/how-it-works`, with `/robots.txt`, `/sitemap.xml`, and `/llms.txt` for crawlers and AI agents. Templates live in `bluepaper/pages/`. Canonical, Open Graph, and structured-data URLs use `BLUEPAPER_PUBLIC_URL` (default `https://bluepaper.bluethroatlabs.com`); set it to the deployed origin. The social card is `bluepaper/web/og-image.png`, rendered from `assets/og-image.html`.
 
 - `POST /v1/conversions` — multipart `file` and optional `ocr_lang` → **202** queued
 - `GET /v1/conversions/{id}` — status only
