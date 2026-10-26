@@ -53,6 +53,14 @@ resource apiOrigin 'Microsoft.Cdn/profiles/originGroups/origins@2024-02-01' = {
   }
 }
 
+// Created outside this file. A route write replaces customDomains, so a deploy
+// that omits this association unbinds the hostname and Front Door serves the
+// *.azureedge.net certificate instead.
+resource bluepaperDomain 'Microsoft.Cdn/profiles/customDomains@2024-02-01' existing = {
+  parent: frontDoor
+  name: 'bluepaper'
+}
+
 resource apiRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
   parent: frontDoorEndpoint
   name: 'default'
@@ -63,6 +71,11 @@ resource apiRoute 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-02-01' = {
     originGroup: {
       id: apiOriginGroup.id
     }
+    customDomains: [
+      {
+        id: bluepaperDomain.id
+      }
+    ]
     supportedProtocols: [
       'Http'
       'Https'

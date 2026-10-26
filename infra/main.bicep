@@ -108,10 +108,10 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: envName
   location: location
   properties: {
-    // Explicit 'none' so a later deployment cannot turn Log Analytics back on.
-    appLogsConfiguration: {
-      destination: 'none'
-    }
+    // The service rejects the string 'none' even though the error text lists it.
+    // JSON null is what --logs-destination none submits, and it keeps a later
+    // deployment from creating a Log Analytics workspace.
+    appLogsConfiguration: json('{"destination":null,"logAnalyticsConfiguration":null}')
   }
 }
 

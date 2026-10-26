@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.46.1.21595",
-      "templateHash": "934858922366939306"
+      "version": "0.48.1.52935",
+      "templateHash": "13905290269113855086"
     }
   },
   "parameters": {
@@ -157,9 +157,7 @@
       "name": "[variables('envName')]",
       "location": "[parameters('location')]",
       "properties": {
-        "appLogsConfiguration": {
-          "destination": "none"
-        }
+        "appLogsConfiguration": "[json('{\"destination\":null,\"logAnalyticsConfiguration\":null}')]"
       }
     },
     {
