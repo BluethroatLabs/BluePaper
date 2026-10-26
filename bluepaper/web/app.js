@@ -102,6 +102,7 @@
     pollTimer: null,
     turnstileId: null,
     turnstileToken: "",
+    turnstileFailures: 0,
     previewToken: 0,
     pdfjs: null,
     pdfLib: null,
@@ -399,8 +400,38 @@
     await refreshJob();
   }
 
+  function renderTurnstile(widget, options) {
+    // Turnstile still delegates the legacy "private-token" feature. Current
+    // browsers expose private-state-token-redemption and
+    // private-state-token-issuance, so the challenge iframe never receives
+    // them and falls back to a script check that extensions fail. The patch
+    // is only in place while render() sets the iframe allow attribute.
+    const proto = window.HTMLIFrameElement && window.HTMLIFrameElement.prototype;
+    if (!proto || typeof proto.setAttribute !== "function") {
+      return window.turnstile.render(widget, options);
+    }
+    const orig = proto.setAttribute;
+    proto.setAttribute = function (name, value) {
+      if (
+        name === "allow" &&
+        typeof value === "string" &&
+        value.includes("cross-origin-isolated") &&
+        !value.includes("private-state-token-redemption")
+      ) {
+        value += "; private-state-token-redemption; private-state-token-issuance";
+      }
+      return orig.call(this, name, value);
+    };
+    try {
+      return window.turnstile.render(widget, options);
+    } finally {
+      proto.setAttribute = orig;
+    }
+  }
+
   function resetTurnstile() {
     state.turnstileToken = "";
+    state.turnstileFailures = 0;
     if (state.turnstileId !== null && window.turnstile) {
       window.turnstile.reset(state.turnstileId);
     }
@@ -417,22 +448,30 @@
       host === "localhost" || host === "127.0.0.1"
         ? TURNSTILE_TEST_SITEKEY
         : TURNSTILE_SITEKEY;
-    state.turnstileId = window.turnstile.render(widget, {
+    state.turnstileId = renderTurnstile(widget, {
       sitekey,
       action: "queue-conversion",
       theme: document.documentElement.classList.contains("light") ? "light" : "dark",
       callback(token) {
         state.turnstileToken = token;
+        state.turnstileFailures = 0;
+        showSubmitError("");
         setReady();
       },
       "expired-callback"() {
         state.turnstileToken = "";
         setReady();
       },
-      "error-callback"() {
+      "error-callback"(code) {
         state.turnstileToken = "";
+        state.turnstileFailures += 1;
         setReady();
-        showSubmitError("Bot check failed. Retry the widget.");
+        if (state.turnstileFailures < 2) {
+          return false;
+        }
+        const detail = code ? ` (${code})` : "";
+        showSubmitError(`Human check failed${detail}. Reload the page and try again.`);
+        return false;
       },
     });
   };
@@ -442,6 +481,8 @@
     window.turnstile.remove(state.turnstileId);
     state.turnstileId = null;
     state.turnstileToken = "";
+    state.turnstileFailures = 0;
+    showSubmitError("");
     setReady();
     window.bluepaperTurnstile();
   };
