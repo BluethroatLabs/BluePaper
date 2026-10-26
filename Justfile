@@ -23,6 +23,9 @@ api_name := "bluepaper-api"
 worker_name := "bluepaper-worker"
 front_door := "bluepaper-fd"
 front_door_endpoint := "bluepaper-wehi"
+# Hostname Cloudflare reports for a widget solved on the public site.
+# The Front Door endpoint hostname (*.azurefd.net) is not that name.
+public_host := "bluepaper.bluethroatlabs.com"
 sandbox_group := "bluepaper-sandboxes"
 dangerzone_image := "ghcr.io/freedomofpress/dangerzone/v1:latest"
 tag := env("TAG", "latest")
@@ -71,18 +74,15 @@ infra:
     : "${TURNSTILE_SECRET:?Set TURNSTILE_SECRET in the environment or .env}"
     az account set --subscription "{{ subscription }}"
     acr="$(just acr='{{ acr }}' _acr)"
-    turnstile_host="$(az afd endpoint show \
+    endpoint_host="$(az afd endpoint show \
       --subscription "{{ subscription }}" \
       --resource-group "{{ edge_rg }}" \
       --profile-name "{{ front_door }}" \
       --endpoint-name "{{ front_door_endpoint }}" \
       --query hostName -o tsv 2>/dev/null || true)"
-    if [[ -z "$turnstile_host" ]]; then
-      turnstile_host="$(az containerapp show \
-        --subscription "{{ subscription }}" \
-        --resource-group "{{ rg }}" \
-        --name "{{ api_name }}" \
-        --query properties.configuration.ingress.fqdn -o tsv)"
+    turnstile_host="{{ public_host }}"
+    if [[ -n "$endpoint_host" && "$endpoint_host" != "{{ public_host }}" ]]; then
+      turnstile_host="${turnstile_host},${endpoint_host}"
     fi
     disk_id="${BLUEPAPER_SANDBOX_DISK_ID:-}"
     if [[ -z "$disk_id" ]]; then
@@ -211,17 +211,21 @@ front-door:
       --resource-group "{{ edge_rg }}" \
       --template-file infra/frontdoor.bicep \
       --parameters originHostName="$origin"
-    host="$(az afd endpoint show \
+    endpoint_host="$(az afd endpoint show \
       -g "{{ edge_rg }}" \
       --profile-name "{{ front_door }}" \
       --endpoint-name "{{ front_door_endpoint }}" \
       --query hostName -o tsv)"
+    turnstile_host="{{ public_host }}"
+    if [[ -n "$endpoint_host" && "$endpoint_host" != "{{ public_host }}" ]]; then
+      turnstile_host="${turnstile_host},${endpoint_host}"
+    fi
     az containerapp update \
       -g "{{ rg }}" \
       -n "{{ api_name }}" \
-      --set-env-vars "TURNSTILE_HOSTNAMES=$host" \
+      --set-env-vars "TURNSTILE_HOSTNAMES=$turnstile_host" \
       -o none
-    echo "Front Door: https://$host"
+    echo "Front Door: https://{{ public_host }} (endpoint ${endpoint_host})"
 
 # Build, push, deploy infra, ensure sandbox group, grant worker roles, set the disk, put Front Door in front.
 deploy: use build infra sandbox-group worker-role disk front-door

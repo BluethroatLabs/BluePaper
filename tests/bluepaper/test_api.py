@@ -483,6 +483,8 @@ def test_frontend_assets_are_public(client: TestClient) -> None:
     assert b"/ui/vendor/signature_pad.min.mjs" in js.content
     assert b"-signed.pdf" in js.content
     assert b"cf-turnstile-response" in js.content
+    assert b"private-state-token-redemption" in js.content
+    assert b"private-state-token-issuance" in js.content
     assert b"/commit/" in js.content
     assert b"0x4AAAAAAE_xSgJ6g787dvMB" in js.content
     assert b"1x00000000000000000000AA" in js.content
