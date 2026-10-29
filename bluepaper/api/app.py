@@ -70,7 +70,7 @@ are visible only to that GitHub user (or the operator API key). The console at
 `/` sends neither. `POST /v1/conversions` accepts a completed Turnstile token
 instead, and that conversion id then authorizes status, report, PDF, and delete.
 Key-created conversions still require the API key.
-`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,
+`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`, `/for-agents`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,
 `/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.
 """.strip()
 

@@ -13,13 +13,14 @@ Important limitations:
 - A hit is not proof that an active construct was present. The same bytes can occur in inert data.
 - A failed conversion produces no safe PDF and is not a malware verdict. Do not open the original as a fallback.
 - The safe PDF keeps everything visible on the page, including phishing text, links, and QR codes. Links, form fields, attachments, and digital signatures are not preserved.
-- The web console requires a human check (Cloudflare Turnstile). Agents must not automate it. Programmatic access uses the REST API with an operator-issued API key.
+- The web console requires a human check (Cloudflare Turnstile). Agents must not automate it. Agents should use the GitHub-authenticated `bluethroat bluepaper convert` command; integrators may use the REST API with an operator-issued API key.
 - The uploaded original is stored under its SHA-256 hash in the operator's storage. Delete removes the safe PDF, report, and job record, but not the original. Do not upload material you are not authorized to share.
 
 ## Use BluePaper
 
 - [Web console]({{SITE_URL}}/): Convert an untrusted document in a browser.
 - [About BluePaper]({{SITE_URL}}/about): Product overview and frequently asked questions.
+- [BluePaper for AI agents]({{SITE_URL}}/for-agents): Authenticated CLI workflow, exit codes, report semantics, REST API, and recommended agent instruction.
 
 ## How it works
 

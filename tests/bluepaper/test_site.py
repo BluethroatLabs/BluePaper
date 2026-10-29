@@ -25,7 +25,7 @@ def site(settings: Settings, stores: Stores) -> TestClient:
 
 @pytest.mark.parametrize(
     "path",
-    ["/", "/about", "/how-it-works", "/privacy", "/terms", "/support"],
+    ["/", "/about", "/how-it-works", "/for-agents", "/privacy", "/terms", "/support"],
 )
 def test_shared_layout_is_rendered_on_every_page(site: TestClient, path: str) -> None:
     html = site.get(path).text
@@ -36,7 +36,7 @@ def test_shared_layout_is_rendered_on_every_page(site: TestClient, path: str) ->
     assert html.count("<h1") == 1
     assert "{{" not in html
     assert "<!-- CONTENT -->" not in html
-    if path in ("/about", "/how-it-works"):
+    if path in ("/about", "/how-it-works", "/for-agents"):
         assert f'href="{path}" aria-current="page"' in html
 
 
@@ -80,10 +80,14 @@ def test_og_image_is_public(site: TestClient) -> None:
     assert response.content[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-def test_removed_agents_page_is_unavailable(site: TestClient) -> None:
-    assert site.get("/for-agents").status_code == 404
-    assert "/for-agents" not in site.get("/sitemap.xml").text
-    assert "/for-agents" not in site.get("/llms.txt").text
+def test_agents_page_documents_the_authenticated_cli(site: TestClient) -> None:
+    html = site.get("/for-agents").text
+    assert "bluethroat bluepaper convert" in html
+    assert "bluethroat auth login" in html
+    assert "BLUETHROAT_BLUEPAPER_API_URL" in html
+    assert "Never describe zero hits" in html
+    assert "/for-agents" in site.get("/sitemap.xml").text
+    assert "/for-agents" in site.get("/llms.txt").text
 
 
 def test_templates_are_not_served_raw(site: TestClient) -> None:
