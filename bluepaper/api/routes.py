@@ -15,12 +15,12 @@ from fastapi import (
     status,
 )
 from fastapi.responses import Response
-from fastapi.security import HTTPAuthorizationCredentials
 
 from bluepaper.api.auth import (
-    bearer_scheme,
+    Principal,
+    authenticate,
     get_settings,
-    reject_invalid_key,
+    unauthorized,
 )
 from bluepaper.api.turnstile import client_ip, verify_turnstile
 from bluepaper.config import (
@@ -55,7 +55,7 @@ _ErrorSpec = dict[int | str, dict[str, Any]]
 ERROR_401: _ErrorSpec = {
     status.HTTP_401_UNAUTHORIZED: {
         "model": ErrorResponse,
-        "description": "Missing or invalid API key",
+        "description": "Missing or invalid API key or GitHub token",
     }
 }
 ERROR_404: _ErrorSpec = {
@@ -70,26 +70,22 @@ def get_stores(request: Request) -> Stores:
     return request.app.state.stores
 
 
-Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]
+Authentication = Annotated[Principal | None, Depends(authenticate)]
 
 
 async def gate_queue(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
 ) -> None:
-    """Integrator key, or a completed Turnstile challenge when the key is omitted."""
-    key = reject_invalid_key(credentials, settings)
-    if key == "valid":
+    """API key, GitHub user, or Turnstile challenge for a browser guest."""
+    if principal is not None:
         request.state.guest = False
+        request.state.principal = principal
         return
     secret = (settings.turnstile_secret or "").strip()
     if not secret:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing or invalid API key",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise unauthorized()
     token: str | None = None
     form = await request.form()
     raw = form.get("cf-turnstile-response")
@@ -102,25 +98,27 @@ async def gate_queue(
 def _visible_record(
     stores: Stores,
     conversion_id: str,
-    settings: Settings,
-    credentials: HTTPAuthorizationCredentials | None,
+    principal: Principal | None,
 ) -> ConversionRecord:
     record = stores.table.get(conversion_id)
-    key = reject_invalid_key(credentials, settings)
-    if key == "valid":
+    if principal is not None and principal.kind == "api_key":
         if record is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="conversion not found",
             )
         return record
-    if record is None or not record.guest:
+    if record is not None and record.guest:
+        return record
+    if principal is not None and principal.kind == "github":
+        if record is not None and record.github_user_id == principal.github_user_id:
+            return record
+        # Do not reveal another GitHub user's conversion id.
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing or invalid API key",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="conversion not found",
         )
-    return record
+    raise unauthorized()
 
 
 @router.get(
@@ -180,7 +178,7 @@ async def create_conversion(
             alias="cf-turnstile-response",
             description=(
                 "Cloudflare Turnstile token. Required when the integrator "
-                "API key is omitted."
+                "API key or GitHub token is omitted."
             ),
         ),
     ] = None,
@@ -238,6 +236,9 @@ async def create_conversion(
         ocr_lang=ocr_lang,
         filename=filename,
         guest=bool(getattr(request.state, "guest", False)),
+        github_user_id=(
+            getattr(getattr(request.state, "principal", None), "github_user_id", None)
+        ),
     )
     stores.table.create(record)
     stores.queue.enqueue(conversion_id)
@@ -259,11 +260,10 @@ async def create_conversion(
 )
 def get_conversion(
     conversion_id: str,
-    settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> StatusResponse:
-    record = _visible_record(stores, conversion_id, settings, credentials)
+    record = _visible_record(stores, conversion_id, principal)
     return _status_response(record)
 
 
@@ -284,11 +284,10 @@ def get_conversion(
 )
 def get_report(
     conversion_id: str,
-    settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> Response:
-    record = _visible_record(stores, conversion_id, settings, credentials)
+    record = _visible_record(stores, conversion_id, principal)
     if record.status == ConversionStatus.succeeded or (
         record.status == ConversionStatus.failed and record.scan_completed
     ):
@@ -333,11 +332,10 @@ def get_report(
 )
 def get_pdf(
     conversion_id: str,
-    settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> Response:
-    record = _visible_record(stores, conversion_id, settings, credentials)
+    record = _visible_record(stores, conversion_id, principal)
     if record.status != ConversionStatus.succeeded:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -366,11 +364,10 @@ def get_pdf(
 )
 def delete_conversion(
     conversion_id: str,
-    settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> Response:
-    record = _visible_record(stores, conversion_id, settings, credentials)
+    record = _visible_record(stores, conversion_id, principal)
     if record.status in (ConversionStatus.queued, ConversionStatus.running):
         record.status = ConversionStatus.cancelled
         record.finished_at = utc_now()

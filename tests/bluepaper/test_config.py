@@ -67,6 +67,12 @@ def test_record_entity_roundtrip_empty_optionals() -> None:
     assert restored.scan_completed is False
     assert restored.filename == "upload.bin"
     assert restored.guest is False
+    assert restored.github_user_id is None
     assert restored.status == ConversionStatus.queued
     record.guest = True
     assert ConversionRecord.from_entity(record.to_entity()).guest is True
+    record.github_user_id = 123
+    assert ConversionRecord.from_entity(record.to_entity()).github_user_id == 123
+    legacy = record.to_entity()
+    legacy.pop("GitHubUserId")
+    assert ConversionRecord.from_entity(legacy).github_user_id is None

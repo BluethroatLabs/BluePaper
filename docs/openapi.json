@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "BluePaper",
-    "description": "Upload an untrusted document and receive a PDF rebuilt from pixels, plus a\nregexp report on the original bytes.\n\nSafety comes from destruction, not detection. Zero regexp hits is not \"clean.\"\n\nIntegrators send `Authorization: Bearer <api-key>` on conversion routes.\nThe console at `/` does not. `POST /v1/conversions` accepts a completed\nTurnstile token instead, and that conversion id then authorizes status,\nreport, PDF, and delete. Key-created conversions still require the API key.\n`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,\n`/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.",
+    "description": "Upload an untrusted document and receive a PDF rebuilt from pixels, plus a\nregexp report on the original bytes.\n\nSafety comes from destruction, not detection. Zero regexp hits is not \"clean.\"\n\nIntegrators send `Authorization: Bearer <api-key>` on conversion routes.\nThe Bluethroat CLI sends its GitHub App user token instead; those conversions\nare visible only to that GitHub user (or the operator API key). The console at\n`/` sends neither. `POST /v1/conversions` accepts a completed Turnstile token\ninstead, and that conversion id then authorizes status, report, PDF, and delete.\nKey-created conversions still require the API key.\n`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,\n`/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.",
     "license": {
       "name": "AGPL-3.0",
       "url": "https://www.gnu.org/licenses/agpl-3.0.html"
@@ -60,7 +60,7 @@
             }
           },
           "401": {
-            "description": "Missing or invalid API key",
+            "description": "Missing or invalid API key or GitHub token",
             "content": {
               "application/json": {
                 "schema": {
@@ -184,7 +184,7 @@
             }
           },
           "401": {
-            "description": "Missing or invalid API key",
+            "description": "Missing or invalid API key or GitHub token",
             "content": {
               "application/json": {
                 "schema": {
@@ -243,7 +243,7 @@
             "description": "Successful Response"
           },
           "401": {
-            "description": "Missing or invalid API key",
+            "description": "Missing or invalid API key or GitHub token",
             "content": {
               "application/json": {
                 "schema": {
@@ -311,7 +311,7 @@
             }
           },
           "401": {
-            "description": "Missing or invalid API key",
+            "description": "Missing or invalid API key or GitHub token",
             "content": {
               "application/json": {
                 "schema": {
@@ -391,7 +391,7 @@
             }
           },
           "401": {
-            "description": "Missing or invalid API key",
+            "description": "Missing or invalid API key or GitHub token",
             "content": {
               "application/json": {
                 "schema": {
@@ -517,7 +517,7 @@
               }
             ],
             "title": "Cf-Turnstile-Response",
-            "description": "Cloudflare Turnstile token. Required when the integrator API key is omitted."
+            "description": "Cloudflare Turnstile token. Required when the integrator API key or GitHub token is omitted."
           }
         },
         "type": "object",
@@ -856,7 +856,7 @@
     "securitySchemes": {
       "HTTPBearer": {
         "type": "http",
-        "description": "Integrator API key. Send as `Authorization: Bearer <api-key>`. Browser clients omit this and complete Turnstile on `POST /v1/conversions` instead.",
+        "description": "Integrator API key or Bluethroat GitHub App user token. Send as `Authorization: Bearer <token>`. Browser clients omit this and complete Turnstile on `POST /v1/conversions` instead.",
         "scheme": "bearer"
       }
     }

@@ -3,7 +3,7 @@
 # Target:
 #   /subscriptions/1e238434-310b-4bcd-ab1f-a9381d170243/resourceGroups/rg-bluepaper-wehi-sandbox
 #
-# Prereqs: `az login`, Podman, `BLUEPAPER_API_KEY` (env or `.env`).
+# Prereqs: `az login`, Podman, API and GitHub App credentials (env or `.env`).
 # Images go to ACR. Pass `acr=myregistry.azurecr.io` or set `ACR` if the RG has none.
 #
 #   just              # this list
@@ -71,6 +71,8 @@ infra:
     #!/usr/bin/env bash
     set -euo pipefail
     : "${BLUEPAPER_API_KEY:?Set BLUEPAPER_API_KEY in the environment or .env}"
+    : "${BLUEPAPER_GITHUB_CLIENT_ID:?Set BLUEPAPER_GITHUB_CLIENT_ID in the environment or .env}"
+    : "${BLUEPAPER_GITHUB_CLIENT_SECRET:?Set BLUEPAPER_GITHUB_CLIENT_SECRET in the environment or .env}"
     : "${TURNSTILE_SECRET:?Set TURNSTILE_SECRET in the environment or .env}"
     az account set --subscription "{{ subscription }}"
     acr="$(just acr='{{ acr }}' _acr)"
@@ -104,6 +106,8 @@ infra:
       --parameters infra/parameters.json \
       --parameters \
         apiKey="$BLUEPAPER_API_KEY" \
+        githubClientId="$BLUEPAPER_GITHUB_CLIENT_ID" \
+        githubClientSecret="$BLUEPAPER_GITHUB_CLIENT_SECRET" \
         turnstileSecret="$TURNSTILE_SECRET" \
         turnstileHostnames="$turnstile_host" \
         apiImage="$acr/{{ api_name }}:{{ tag }}" \

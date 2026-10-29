@@ -8,7 +8,7 @@ The product contract is [ARCHITECTURE.md](ARCHITECTURE.md). Deep PDF-analysis re
 
 ## HTTP API
 
-Integrators send `Authorization: Bearer <api-key>` on conversion routes. The console does not: `POST /v1/conversions` accepts a completed Turnstile token instead, and that conversion id then authorizes status, report, PDF, and delete. Conversions created with an API key still require it. `GET /v1/source` is public. Conversion ids look like `cnv_…`. Hashes are SHA-256 hex.
+Integrators send `Authorization: Bearer <api-key>` on conversion routes. The Bluethroat CLI sends the user token issued by the Bluethroat GitHub App; a conversion created that way is visible only to that GitHub user or the operator API key. The console sends neither: `POST /v1/conversions` accepts a completed Turnstile token instead, and that conversion id then authorizes status, report, PDF, and delete. Conversions created with an API key still require it. `GET /v1/source` is public. Conversion ids look like `cnv_…`. Hashes are SHA-256 hex.
 
 OpenAPI is unauthenticated: `GET /openapi.json` (spec) and `GET /docs` (Swagger UI). The console is `GET /`.
 
@@ -27,6 +27,9 @@ Unsupported types return **415** before a sandbox is created. Size, concurrency,
 
 ```bash
 export BLUEPAPER_API_KEY=dev
+# Optional CLI authentication (use the same GitHub App as bluethroat-cli)
+export BLUEPAPER_GITHUB_CLIENT_ID=Iv1.example
+export BLUEPAPER_GITHUB_CLIENT_SECRET=...
 # Console Turnstile test keys (do not use these in production)
 export TURNSTILE_SECRET=1x0000000000000000000000000000000AA
 export TURNSTILE_HOSTNAMES=localhost,127.0.0.1

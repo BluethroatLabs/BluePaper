@@ -27,7 +27,7 @@ from bluepaper.storage.base import Stores
 log = logging.getLogger("bluepaper.api")
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
-# Status, report, and PDF are bearer-or-id protected documents.
+# Status, report, and PDF are bearer-or-capability-id protected documents.
 _DOCUMENT_GET = re.compile(r"^/v1/conversions/[^/]+(?:/(?:report|pdf))?$")
 
 
@@ -65,9 +65,11 @@ regexp report on the original bytes.
 Safety comes from destruction, not detection. Zero regexp hits is not "clean."
 
 Integrators send `Authorization: Bearer <api-key>` on conversion routes.
-The console at `/` does not. `POST /v1/conversions` accepts a completed
-Turnstile token instead, and that conversion id then authorizes status,
-report, PDF, and delete. Key-created conversions still require the API key.
+The Bluethroat CLI sends its GitHub App user token instead; those conversions
+are visible only to that GitHub user (or the operator API key). The console at
+`/` sends neither. `POST /v1/conversions` accepts a completed Turnstile token
+instead, and that conversion id then authorizes status, report, PDF, and delete.
+Key-created conversions still require the API key.
 `GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,
 `/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.
 """.strip()
@@ -191,7 +193,20 @@ def run() -> None:
     configure_logging()
     import uvicorn
 
+    from bluepaper.api.github_auth import configured as github_configured
+    from bluepaper.api.github_auth import misconfigured as github_misconfigured
+
     settings = Settings()
+    if github_misconfigured(settings):
+        log.warning(
+            "GitHub CLI auth is misconfigured; set both "
+            "BLUEPAPER_GITHUB_CLIENT_ID and BLUEPAPER_GITHUB_CLIENT_SECRET"
+        )
+    else:
+        log.info(
+            "GitHub CLI auth: %s",
+            "on" if github_configured(settings) else "off",
+        )
     application = create_app(settings)
     start_embedded_dummy_worker(settings, application.state.stores)
     port = int(os.environ.get("PORT", settings.port))

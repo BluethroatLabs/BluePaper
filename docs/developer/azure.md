@@ -27,6 +27,8 @@ az deployment group create \
   --template-file infra/main.bicep \
   --parameters infra/parameters.json \
   --parameters apiKey="$BLUEPAPER_API_KEY" \
+               githubClientId="$BLUEPAPER_GITHUB_CLIENT_ID" \
+               githubClientSecret="$BLUEPAPER_GITHUB_CLIENT_SECRET" \
                apiImage="$ACR/bluepaper-api:latest" \
                workerImage="$ACR/bluepaper-worker:latest"
 ```
@@ -50,6 +52,7 @@ az role assignment create \
 | Variable | Purpose |
 | --- | --- |
 | `BLUEPAPER_API_KEY` | Integrator bearer token. The console uses Turnstile instead. |
+| `BLUEPAPER_GITHUB_CLIENT_ID` / `BLUEPAPER_GITHUB_CLIENT_SECRET` | Bluethroat GitHub App credentials used to validate CLI user tokens. Configure both or neither. |
 | `BLUEPAPER_MAX_UPLOAD_BYTES` | Default 32 MiB |
 | `BLUEPAPER_MAX_CONCURRENT_JOBS` | 429 when running jobs hit this |
 | `BLUEPAPER_MAX_QUEUE_DEPTH` | 503 when the queue is full |
