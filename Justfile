@@ -113,15 +113,31 @@ infra:
         apiImage="$acr/{{ api_name }}:{{ tag }}" \
         workerImage="$acr/{{ worker_name }}:{{ tag }}" \
         "${disk_args[@]}"
-    # The template image stays `:latest`, so Bicep does not start a new
-    # revision or pull the digest just pushed. Update each app explicitly.
+    # The template image stays `:latest`. Container Apps pins the digest
+    # when a revision is created, and setting that same tag again does not
+    # pull the manifest just pushed. Point each app at the tag's digest.
     for name in "{{ api_name }}" "{{ worker_name }}"; do
+      digest="$(az acr repository show \
+        --name "${acr%%.*}" \
+        --image "$name:{{ tag }}" \
+        --query digest -o tsv)"
+      target="$acr/$name@$digest"
+      current="$(az containerapp show \
+        --subscription "{{ subscription }}" \
+        --resource-group "{{ rg }}" \
+        --name "$name" \
+        --query "properties.template.containers[0].image" -o tsv)"
+      if [[ "$current" == "$target" ]]; then
+        echo "$name already running $digest"
+        continue
+      fi
       az containerapp update \
         --subscription "{{ subscription }}" \
         --resource-group "{{ rg }}" \
         --name "$name" \
-        --image "$acr/$name:{{ tag }}" \
+        --image "$target" \
         -o none
+      echo "$name -> $digest"
     done
 
 # Create the sandbox group with `aca` when the Bicep preview resource is unavailable.
