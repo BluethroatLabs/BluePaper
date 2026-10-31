@@ -3,14 +3,16 @@ from __future__ import annotations
 import logging
 import subprocess
 import tempfile
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import IO, Any
 
 from bluepaper.config import Settings
 from bluepaper.isolation.session import CONVERT_WRAPPER, SandboxSession
+from bluepaper.isolation.stop import StopSignal
 from dangerzone.document import Document
-from dangerzone.isolation_provider.base import IsolationProvider
+from dangerzone.isolation_provider.base import ConversionStopped, IsolationProvider
 
 log = logging.getLogger("bluepaper.isolation.aca")
 
@@ -60,26 +62,30 @@ class AcaIsolationProvider(IsolationProvider):
         document: Document,
         ocr_lang: str | None,
         progress_callback: Callable | None = None,
+        stop: StopSignal | None = None,
     ) -> None:
         self.progress_callback = progress_callback
         document.mark_as_converting()
-        sandbox: SandboxSession | None = None
+        disposer = _SandboxDisposer()
+        forget_stop = stop.on_stop(disposer.delete) if stop is not None else None
         try:
-            sandbox = self._create_session()
+            disposer.adopt(self._create_session())
+            sandbox = disposer.sandbox
+            assert sandbox is not None
             self._doc_to_pixels(sandbox, document)
+            if stop is not None and stop.is_set():
+                raise ConversionStopped()
             with self._open_pixels(sandbox) as stream:
-                self.convert_from_pixel_stream(document, ocr_lang, stream)
+                self.convert_from_pixel_stream(document, ocr_lang, stream, stop=stop)
             document.mark_as_safe()
         except Exception:
             log.exception("ACA conversion failed for %s", document.id)
             document.mark_as_failed()
             raise
         finally:
-            if sandbox is not None:
-                try:
-                    sandbox.delete()
-                except Exception:
-                    log.exception("failed to delete ACA sandbox")
+            if forget_stop is not None:
+                forget_stop()
+            disposer.delete()
 
     def _doc_to_pixels(self, sandbox: SandboxSession, document: Document) -> None:
         original = Path(document.input_filename).read_bytes()
@@ -117,6 +123,43 @@ class AcaIsolationProvider(IsolationProvider):
         tmp.write(payload)
         tmp.seek(0)
         return tmp
+
+
+class _SandboxDisposer:
+    """Deletes the sandbox exactly once: on stop (from the job thread, which
+    ends any exec still running in it) or when the conversion finishes.
+
+    A sandbox created after the stop is deleted as soon as it is adopted.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.sandbox: SandboxSession | None = None
+        self._deleted = False
+
+    def adopt(self, sandbox: SandboxSession) -> None:
+        with self._lock:
+            self.sandbox = sandbox
+            deleted = self._deleted
+        if deleted:
+            self._delete(sandbox)
+            raise ConversionStopped()
+
+    def delete(self) -> None:
+        with self._lock:
+            if self._deleted:
+                return
+            self._deleted = True
+            sandbox = self.sandbox
+        if sandbox is not None:
+            self._delete(sandbox)
+
+    @staticmethod
+    def _delete(sandbox: SandboxSession) -> None:
+        try:
+            sandbox.delete()
+        except Exception:
+            log.exception("failed to delete ACA sandbox")
 
 
 def _connect_and_create(settings: Settings) -> SandboxSession:

@@ -1,26 +1,26 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 from typing import Annotated, Any
 from urllib.parse import quote, unquote
 
 from fastapi import (
     APIRouter,
     Depends,
-    File,
-    Form,
+    Header,
     HTTPException,
     Request,
-    UploadFile,
     status,
 )
 from fastapi.responses import Response
-from fastapi.security import HTTPAuthorizationCredentials
+from starlette.datastructures import FormData, UploadFile
 
 from bluepaper.api.auth import (
-    bearer_scheme,
+    Principal,
+    authenticate,
     get_settings,
-    reject_invalid_key,
+    unauthorized,
 )
 from bluepaper.api.turnstile import client_ip, verify_turnstile
 from bluepaper.config import (
@@ -55,7 +55,7 @@ _ErrorSpec = dict[int | str, dict[str, Any]]
 ERROR_401: _ErrorSpec = {
     status.HTTP_401_UNAUTHORIZED: {
         "model": ErrorResponse,
-        "description": "Missing or invalid API key",
+        "description": "Missing or invalid API key or GitHub token",
     }
 }
 ERROR_404: _ErrorSpec = {
@@ -66,61 +66,113 @@ ERROR_404: _ErrorSpec = {
 }
 
 
+_UPLOAD_BODY: dict[str, Any] = {
+    "required": True,
+    "content": {
+        "multipart/form-data": {
+            "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                    "file": {
+                        "title": "File",
+                        "type": "string",
+                        "contentMediaType": "application/octet-stream",
+                    },
+                    "ocr_lang": {
+                        "title": "Ocr Lang",
+                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                    },
+                },
+            }
+        }
+    },
+}
+
+
 def get_stores(request: Request) -> Stores:
     return request.app.state.stores
 
 
-Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]
+Authentication = Annotated[Principal | None, Depends(authenticate)]
 
 
 async def gate_queue(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
+    cf_turnstile_response: Annotated[
+        str | None,
+        Header(
+            alias="cf-turnstile-response",
+            description=(
+                "Cloudflare Turnstile token. Required when the integrator "
+                "API key or GitHub token is omitted."
+            ),
+        ),
+    ] = None,
 ) -> None:
-    """Integrator key, or a completed Turnstile challenge when the key is omitted."""
-    key = reject_invalid_key(credentials, settings)
-    if key == "valid":
+    """API key, GitHub user, or Turnstile challenge for a browser guest.
+
+    Runs before the upload body is read, so every credential comes from a
+    header: an anonymous caller is turned away without sending the file.
+    """
+    if principal is not None:
         request.state.guest = False
+        request.state.principal = principal
         return
     secret = (settings.turnstile_secret or "").strip()
     if not secret:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing or invalid API key",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    token: str | None = None
-    form = await request.form()
-    raw = form.get("cf-turnstile-response")
-    if isinstance(raw, str):
-        token = raw
-    verify_turnstile(token, client_ip(request), settings)
+        raise unauthorized()
+    verify_turnstile(cf_turnstile_response, client_ip(request), settings)
     request.state.guest = True
+
+
+def _owner_key(request: Request, settings: Settings) -> str | None:
+    """Whose conversions ``max_concurrent_jobs`` counts this upload against.
+
+    A GitHub user is one caller; a guest is one client address, stored as an
+    HMAC so the table holds no raw IP. The integrator API key is exempt: one
+    key fronts many people, and the queue-depth 503 bounds it instead.
+    """
+    principal = getattr(request.state, "principal", None)
+    if principal is not None:
+        if principal.kind == "github" and principal.github_user_id is not None:
+            return f"github:{principal.github_user_id}"
+        return None
+    ip = client_ip(request)
+    if not ip:
+        return None
+    digest = hmac.new(
+        settings.api_key.encode("utf-8"), ip.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    return f"guest:{digest[:32]}"
 
 
 def _visible_record(
     stores: Stores,
     conversion_id: str,
-    settings: Settings,
-    credentials: HTTPAuthorizationCredentials | None,
+    principal: Principal | None,
 ) -> ConversionRecord:
     record = stores.table.get(conversion_id)
-    key = reject_invalid_key(credentials, settings)
-    if key == "valid":
+    if principal is not None and principal.kind == "api_key":
         if record is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="conversion not found",
             )
         return record
-    if record is None or not record.guest:
+    if record is not None and record.guest:
+        return record
+    if principal is not None and principal.kind == "github":
+        if record is not None and record.github_user_id == principal.github_user_id:
+            return record
+        # Do not reveal another GitHub user's conversion id.
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing or invalid API key",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="conversion not found",
         )
-    return record
+    raise unauthorized()
 
 
 @router.get(
@@ -155,7 +207,7 @@ def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceRespon
         },
         status.HTTP_429_TOO_MANY_REQUESTS: {
             "model": ErrorResponse,
-            "description": "Concurrency limit",
+            "description": "Caller already has the maximum conversions in progress",
         },
         status.HTTP_403_FORBIDDEN: {
             "model": ErrorResponse,
@@ -167,27 +219,51 @@ def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceRespon
         },
     },
     dependencies=[Depends(gate_queue)],
+    # The form is parsed in the handler, after gate_queue: FastAPI reads
+    # declared File/Form parameters before any dependency runs.
+    openapi_extra={"requestBody": _UPLOAD_BODY},
 )
 async def create_conversion(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     stores: Annotated[Stores, Depends(get_stores)],
-    file: Annotated[UploadFile, File()],
-    ocr_lang: Annotated[str | None, Form()] = None,
-    cf_turnstile_response: Annotated[
-        str | None,
-        Form(
-            alias="cf-turnstile-response",
-            description=(
-                "Cloudflare Turnstile token. Required when the integrator "
-                "API key is omitted."
-            ),
-        ),
-    ] = None,
 ) -> AcceptedResponse:
-    # The token is checked in gate_queue. The parameter stays so OpenAPI
-    # documents the multipart field.
-    del cf_turnstile_response
+    # Refuse before the body is read when the answer does not depend on it.
+    if stores.queue.depth() >= settings.max_queue_depth:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="queue saturated",
+        )
+    owner = _owner_key(request, settings)
+    if owner is not None and (
+        stores.table.count_active(owner) >= settings.max_concurrent_jobs
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="concurrency limit",
+        )
+    form = await request.form(max_files=1, max_fields=4)
+    try:
+        return await _queue_upload(request, settings, stores, form, owner)
+    finally:
+        await form.close()
+
+
+async def _queue_upload(
+    request: Request,
+    settings: Settings,
+    stores: Stores,
+    form: FormData,
+    owner: str | None,
+) -> AcceptedResponse:
+    file = form.get("file")
+    if not isinstance(file, UploadFile):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="file is required",
+        )
+    raw_lang = form.get("ocr_lang")
+    ocr_lang = raw_lang if isinstance(raw_lang, str) and raw_lang else None
     filename = file.filename or "upload.bin"
     ext = extension_of(filename)
     if ext not in SUPPORTED_EXTENSIONS:
@@ -204,18 +280,6 @@ async def create_conversion(
         raise HTTPException(
             status_code=413,
             detail="file too large",
-        )
-    if stores.queue.depth() >= settings.max_queue_depth:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="queue saturated",
-        )
-    if stores.table.count_by_status(ConversionStatus.running.value) >= (
-        settings.max_concurrent_jobs
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="concurrency limit",
         )
 
     data = await file.read(settings.max_upload_bytes + 1)
@@ -238,6 +302,10 @@ async def create_conversion(
         ocr_lang=ocr_lang,
         filename=filename,
         guest=bool(getattr(request.state, "guest", False)),
+        github_user_id=(
+            getattr(getattr(request.state, "principal", None), "github_user_id", None)
+        ),
+        owner=owner,
     )
     stores.table.create(record)
     stores.queue.enqueue(conversion_id)
@@ -259,11 +327,10 @@ async def create_conversion(
 )
 def get_conversion(
     conversion_id: str,
-    settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> StatusResponse:
-    record = _visible_record(stores, conversion_id, settings, credentials)
+    record = _visible_record(stores, conversion_id, principal)
     return _status_response(record)
 
 
@@ -284,11 +351,10 @@ def get_conversion(
 )
 def get_report(
     conversion_id: str,
-    settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> Response:
-    record = _visible_record(stores, conversion_id, settings, credentials)
+    record = _visible_record(stores, conversion_id, principal)
     if record.status == ConversionStatus.succeeded or (
         record.status == ConversionStatus.failed and record.scan_completed
     ):
@@ -333,11 +399,10 @@ def get_report(
 )
 def get_pdf(
     conversion_id: str,
-    settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> Response:
-    record = _visible_record(stores, conversion_id, settings, credentials)
+    record = _visible_record(stores, conversion_id, principal)
     if record.status != ConversionStatus.succeeded:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -366,11 +431,10 @@ def get_pdf(
 )
 def delete_conversion(
     conversion_id: str,
-    settings: Annotated[Settings, Depends(get_settings)],
-    credentials: Credentials,
+    principal: Authentication,
     stores: Annotated[Stores, Depends(get_stores)],
 ) -> Response:
-    record = _visible_record(stores, conversion_id, settings, credentials)
+    record = _visible_record(stores, conversion_id, principal)
     if record.status in (ConversionStatus.queued, ConversionStatus.running):
         record.status = ConversionStatus.cancelled
         record.finished_at = utc_now()

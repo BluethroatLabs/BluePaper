@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "13905290269113855086"
+      "templateHash": "8006407035551311992"
     }
   },
   "parameters": {
@@ -27,6 +27,18 @@
       "type": "securestring",
       "metadata": {
         "description": "Bearer API key for the BluePaper HTTP API"
+      }
+    },
+    "githubClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Client id of the Bluethroat GitHub App"
+      }
+    },
+    "githubClientSecret": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Client secret of the Bluethroat GitHub App"
       }
     },
     "turnstileSecret": {
@@ -181,6 +193,10 @@
               "value": "[parameters('apiKey')]"
             },
             {
+              "name": "github-client-secret",
+              "value": "[parameters('githubClientSecret')]"
+            },
+            {
               "name": "turnstile-secret",
               "value": "[parameters('turnstileSecret')]"
             }
@@ -201,6 +217,14 @@
                 {
                   "name": "BLUEPAPER_API_KEY",
                   "secretRef": "api-key"
+                },
+                {
+                  "name": "BLUEPAPER_GITHUB_CLIENT_ID",
+                  "value": "[parameters('githubClientId')]"
+                },
+                {
+                  "name": "BLUEPAPER_GITHUB_CLIENT_SECRET",
+                  "secretRef": "github-client-secret"
                 },
                 {
                   "name": "BLUEPAPER_STORAGE_BACKEND",

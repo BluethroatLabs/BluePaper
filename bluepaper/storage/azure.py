@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from bluepaper.models import ConversionRecord, QueueLease
+from bluepaper.models import ConversionRecord, ConversionStatus, QueueLease
 from bluepaper.storage.base import Stores
 
 log = logging.getLogger("bluepaper.storage")
@@ -81,6 +81,15 @@ class AzureTableStore:
             count += 1
         return count
 
+    def count_active(self, owner: str) -> int:
+        quoted = owner.replace("'", "''")
+        query = (
+            f"Owner eq '{quoted}' and "
+            f"(Status eq '{ConversionStatus.queued.value}' or "
+            f"Status eq '{ConversionStatus.running.value}')"
+        )
+        return sum(1 for _ in self._table.query_entities(query))
+
 
 class AzureQueue:
     def __init__(self, service: Any, queue_name: str) -> None:
@@ -113,6 +122,25 @@ class AzureQueue:
         if lease.raw is None:
             return
         self._queue.delete_message(lease.raw)
+
+    def extend(self, lease: QueueLease, visibility_timeout: int) -> QueueLease | None:
+        from azure.core.exceptions import ResourceNotFoundError
+
+        if lease.raw is None:
+            return lease
+        try:
+            message = self._queue.update_message(
+                lease.raw, visibility_timeout=visibility_timeout
+            )
+        except ResourceNotFoundError:
+            # Deleted, or the receipt went stale when the lease expired.
+            return None
+        return QueueLease(
+            conversion_id=lease.conversion_id,
+            pop_receipt=message.pop_receipt,
+            dequeue_count=lease.dequeue_count,
+            raw=message,
+        )
 
     def depth(self) -> int:
         props = self._queue.get_queue_properties()

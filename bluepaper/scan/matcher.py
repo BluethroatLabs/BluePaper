@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
+
+# Bytes matched between calls to ``find``'s ``check``.
+CHECK_EVERY = 1 << 16
 
 
 class _Node:
@@ -41,21 +45,30 @@ class AhoCorasick:
                 child.outputs = child.outputs + child.fail.outputs
                 queue.append(child)
 
-    def find(self, data: bytes) -> dict[str, tuple[int, int]]:
-        """Return pattern id -> (count, first_offset)."""
+    def find(
+        self, data: bytes, check: Callable[[], None] | None = None
+    ) -> dict[str, tuple[int, int]]:
+        """Return pattern id -> (count, first_offset).
+
+        ``check`` runs every ``CHECK_EVERY`` bytes; it can raise to stop.
+        """
         hits: dict[str, tuple[int, int]] = {}
         node = self._root
-        for index, byte in enumerate(data):
-            while node is not self._root and byte not in node.children:
-                assert node.fail is not None
-                node = node.fail
-            node = node.children.get(byte, self._root)
-            for pattern_id, length in node.outputs:
-                start = index - length + 1
-                prev = hits.get(pattern_id)
-                if prev is None:
-                    hits[pattern_id] = (1, start)
-                else:
-                    count, first = prev
-                    hits[pattern_id] = (count + 1, first)
+        view = memoryview(data)
+        for base in range(0, len(data), CHECK_EVERY):
+            if check is not None:
+                check()
+            for index, byte in enumerate(view[base : base + CHECK_EVERY], base):
+                while node is not self._root and byte not in node.children:
+                    assert node.fail is not None
+                    node = node.fail
+                node = node.children.get(byte, self._root)
+                for pattern_id, length in node.outputs:
+                    start = index - length + 1
+                    prev = hits.get(pattern_id)
+                    if prev is None:
+                        hits[pattern_id] = (1, start)
+                    else:
+                        count, first = prev
+                        hits[pattern_id] = (count + 1, first)
         return hits

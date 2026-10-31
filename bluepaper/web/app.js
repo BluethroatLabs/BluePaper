@@ -374,14 +374,18 @@
     }
     const data = new FormData();
     data.append("file", state.file, state.file.name);
-    data.append("cf-turnstile-response", state.turnstileToken);
     if (els.ocr.value) {
       data.append("ocr_lang", els.ocr.value);
     }
     els.convertBtn.disabled = true;
     let response;
     try {
-      response = await api("/v1/conversions", { method: "POST", body: data });
+      // A header, not a form field: the API checks it before reading the file.
+      response = await api("/v1/conversions", {
+        method: "POST",
+        headers: { "cf-turnstile-response": state.turnstileToken },
+        body: data,
+      });
     } finally {
       resetTurnstile();
     }

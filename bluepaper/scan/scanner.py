@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import time
 from bisect import bisect_left
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from bluepaper.config import CATALOG_VERSION
 from bluepaper.models import Hit, ScanResult
-from bluepaper.scan.matcher import AhoCorasick
+from bluepaper.scan.matcher import CHECK_EVERY, AhoCorasick
 
 _PDF_MAGIC = b"%PDF"
 _ZIP_MAGIC = b"PK\x03\x04"
@@ -57,13 +58,16 @@ def _hex_nibble(byte: int) -> int | None:
     return None
 
 
-def expand_pdf_name_escapes(data: bytes) -> tuple[bytes, list[int]]:
+def expand_pdf_name_escapes(
+    data: bytes, check: Callable[[], None] | None = None
+) -> tuple[bytes, list[int]]:
     """Expand ``#HH`` escapes inside PDF names.
 
     ``/Java#53cript`` is the name ``/JavaScript``. The returned emit indexes
     are positions in the expanded buffer where a three-byte escape became one
     byte, so match offsets can be mapped back to the original file. Streams
-    are not decompressed.
+    are not decompressed. ``check`` runs every ``CHECK_EVERY`` input bytes;
+    it can raise to stop.
     """
     if b"#" not in data:
         return data, []
@@ -71,13 +75,21 @@ def expand_pdf_name_escapes(data: bytes) -> tuple[bytes, list[int]]:
     emits: list[int] = []
     index = 0
     length = len(data)
+    next_check = 0
     while index < length:
+        if check is not None and index >= next_check:
+            check()
+            next_check = index + CHECK_EVERY
         byte = data[index]
         out.append(byte)
         index += 1
         if byte != 0x2F:
             continue
         while index < length and data[index] not in _NAME_END:
+            # One name can run to the end of the file.
+            if check is not None and index >= next_check:
+                check()
+                next_check = index + CHECK_EVERY
             if (
                 data[index] == 0x23
                 and index + 2 < length
@@ -102,21 +114,22 @@ def _original_offset(norm_index: int, emits: list[int]) -> int:
 
 def scan_bytes(data: bytes, *, timeout_seconds: float = 30.0) -> ScanResult:
     deadline = time.monotonic() + timeout_seconds
-    if time.monotonic() > deadline:
-        raise ScanTimeout()
+
+    def check_deadline() -> None:
+        if time.monotonic() > deadline:
+            raise ScanTimeout()
 
     catalog = load_catalog()
     version = str(catalog.get("version") or CATALOG_VERSION)
-    normalized, emits = expand_pdf_name_escapes(data)
-    counts = _automaton().find(normalized)
+    normalized, emits = expand_pdf_name_escapes(data, check_deadline)
+    counts = _automaton().find(normalized, check_deadline)
     if emits:
         counts = {
             pattern_id: (count, _original_offset(first, emits))
             for pattern_id, (count, first) in counts.items()
         }
 
-    if time.monotonic() > deadline:
-        raise ScanTimeout()
+    check_deadline()
 
     specials = _special_hits(data, catalog["patterns"])
     merged: dict[str, tuple[int, int]] = dict(counts)

@@ -36,9 +36,16 @@ class ConversionRecord:
     ocr_lang: str | None = None
     scan_completed: bool = False
     filename: str = "upload.bin"
-    # True when the caller queued with Turnstile and no API key. The conversion
-    # id is then the capability for status, report, PDF, and delete.
+    # True when the caller queued with Turnstile and no bearer credential. The
+    # conversion id is then the capability for status, report, PDF, and delete.
     guest: bool = False
+    # Numeric owner for a conversion queued with a Bluethroat GitHub App token.
+    # ``None`` preserves API-key-created and legacy records.
+    github_user_id: int | None = None
+    # Who the per-caller limit counts this conversion against
+    # (``github:<id>`` or ``guest:<hmac>``). ``None`` for API-key and legacy
+    # records, which no caller limit counts.
+    owner: str | None = None
 
     def to_entity(self) -> dict[str, Any]:
         return {
@@ -56,6 +63,8 @@ class ConversionRecord:
             "ScanCompleted": self.scan_completed,
             "Filename": self.filename,
             "Guest": self.guest,
+            "GitHubUserId": self.github_user_id or 0,
+            "Owner": self.owner or "",
         }
 
     @classmethod
@@ -75,6 +84,12 @@ class ConversionRecord:
             scan_completed=bool(entity.get("ScanCompleted", False)),
             filename=str(entity.get("Filename") or "upload.bin"),
             guest=bool(entity.get("Guest", False)),
+            github_user_id=(
+                int(entity.get("GitHubUserId") or 0)
+                if int(entity.get("GitHubUserId") or 0) > 0
+                else None
+            ),
+            owner=str(entity.get("Owner") or "") or None,
         )
 
 

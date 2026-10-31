@@ -3,7 +3,7 @@
 # Target:
 #   /subscriptions/1e238434-310b-4bcd-ab1f-a9381d170243/resourceGroups/rg-bluepaper-wehi-sandbox
 #
-# Prereqs: `az login`, Podman, `BLUEPAPER_API_KEY` (env or `.env`).
+# Prereqs: `az login`, Podman, API and GitHub App credentials (env or `.env`).
 # Images go to ACR. Pass `acr=myregistry.azurecr.io` or set `ACR` if the RG has none.
 #
 #   just              # this list
@@ -71,6 +71,8 @@ infra:
     #!/usr/bin/env bash
     set -euo pipefail
     : "${BLUEPAPER_API_KEY:?Set BLUEPAPER_API_KEY in the environment or .env}"
+    : "${BLUEPAPER_GITHUB_CLIENT_ID:?Set BLUEPAPER_GITHUB_CLIENT_ID in the environment or .env}"
+    : "${BLUEPAPER_GITHUB_CLIENT_SECRET:?Set BLUEPAPER_GITHUB_CLIENT_SECRET in the environment or .env}"
     : "${TURNSTILE_SECRET:?Set TURNSTILE_SECRET in the environment or .env}"
     az account set --subscription "{{ subscription }}"
     acr="$(just acr='{{ acr }}' _acr)"
@@ -104,20 +106,38 @@ infra:
       --parameters infra/parameters.json \
       --parameters \
         apiKey="$BLUEPAPER_API_KEY" \
+        githubClientId="$BLUEPAPER_GITHUB_CLIENT_ID" \
+        githubClientSecret="$BLUEPAPER_GITHUB_CLIENT_SECRET" \
         turnstileSecret="$TURNSTILE_SECRET" \
         turnstileHostnames="$turnstile_host" \
         apiImage="$acr/{{ api_name }}:{{ tag }}" \
         workerImage="$acr/{{ worker_name }}:{{ tag }}" \
         "${disk_args[@]}"
-    # The template image stays `:latest`, so Bicep does not start a new
-    # revision or pull the digest just pushed. Update each app explicitly.
+    # The template image stays `:latest`. Container Apps pins the digest
+    # when a revision is created, and setting that same tag again does not
+    # pull the manifest just pushed. Point each app at the tag's digest.
     for name in "{{ api_name }}" "{{ worker_name }}"; do
+      digest="$(az acr repository show \
+        --name "${acr%%.*}" \
+        --image "$name:{{ tag }}" \
+        --query digest -o tsv)"
+      target="$acr/$name@$digest"
+      current="$(az containerapp show \
+        --subscription "{{ subscription }}" \
+        --resource-group "{{ rg }}" \
+        --name "$name" \
+        --query "properties.template.containers[0].image" -o tsv)"
+      if [[ "$current" == "$target" ]]; then
+        echo "$name already running $digest"
+        continue
+      fi
       az containerapp update \
         --subscription "{{ subscription }}" \
         --resource-group "{{ rg }}" \
         --name "$name" \
-        --image "$acr/$name:{{ tag }}" \
+        --image "$target" \
         -o none
+      echo "$name -> $digest"
     done
 
 # Create the sandbox group with `aca` when the Bicep preview resource is unavailable.

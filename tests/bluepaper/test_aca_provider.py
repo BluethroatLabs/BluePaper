@@ -243,3 +243,61 @@ def test_convert_wrapper_rewires_stdio() -> None:
     assert "os.dup2" in CONVERT_WRAPPER
     assert "sys.stdout = open" not in CONVERT_WRAPPER
     assert "/home/dangerzone/dangerzone-image/rootfs/opt/dangerzone" in CONVERT_WRAPPER
+
+
+def test_aca_stop_deletes_the_sandbox_mid_exec(tmp_path: Path) -> None:
+    import threading
+
+    from bluepaper.isolation.stop import StopSignal
+
+    in_exec = threading.Event()
+    killed = threading.Event()
+
+    class HangingSandbox(FakeSandbox):
+        def exec(self, command: str) -> ExecResult:
+            if "run_convert.py" in command:
+                in_exec.set()
+                # The exec returns only once the sandbox is deleted.
+                assert killed.wait(timeout=5)
+                self.exit_code = 137
+                return self
+            return super().exec(command)
+
+        def delete(self) -> None:
+            super().delete()
+            killed.set()
+
+    sandbox = HangingSandbox()
+    provider = AcaIsolationProvider(lambda: sandbox, max_pixel_bytes=1024 * 1024)
+    doc = _pdf_doc(tmp_path)
+    stop = StopSignal()
+    errors: list[RuntimeError] = []
+
+    def run() -> None:
+        try:
+            provider.convert(doc, None, stop=stop)
+        except RuntimeError as exc:  # doc_to_pixels exited with 137
+            errors.append(exc)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    assert in_exec.wait(timeout=5)
+    stop.set()
+    assert sandbox.deleted is True
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert errors and doc.is_failed()
+
+
+def test_aca_sandbox_created_after_stop_is_deleted(tmp_path: Path) -> None:
+    from bluepaper.isolation.stop import StopSignal
+    from dangerzone.isolation_provider.base import ConversionStopped
+
+    sandbox = FakeSandbox()
+    stop = StopSignal()
+    stop.set()
+    provider = AcaIsolationProvider(lambda: sandbox, max_pixel_bytes=1024 * 1024)
+    with pytest.raises(ConversionStopped):
+        provider.convert(_pdf_doc(tmp_path), None, stop=stop)
+    assert sandbox.deleted is True
+    assert sandbox.commands == []

@@ -124,7 +124,12 @@ class Settings(BaseSettings):
     # Empty default is rejected. The real value comes from BLUEPAPER_API_KEY;
     # the default exists so Settings() type-checks when the env supplies it.
     api_key: str = Field(default="", min_length=1, validate_default=True)
+    # Bluethroat GitHub App credentials. The public client id and server-only
+    # secret let the API validate device-flow user tokens from bluethroat-cli.
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
     max_upload_bytes: int = 32 * 1024 * 1024
+    # Conversions one GitHub user or guest address may have queued or running.
     max_concurrent_jobs: int = 4
     max_queue_depth: int = 100
     max_dequeues: int = 5

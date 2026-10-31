@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,19 @@ from bluepaper.api.app import create_app
 from bluepaper.config import Settings
 from bluepaper.storage.base import Stores
 from bluepaper.storage.memory import memory_stores
+
+
+@pytest.fixture(autouse=True)
+def _isolated_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep a developer's ``.env`` and ``BLUEPAPER_*`` exports out of tests.
+
+    Otherwise a local GitHub App secret turns "half-configured" into
+    "configured" and the fail-closed checks pass for the wrong reason.
+    """
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    for name in list(os.environ):
+        if name.startswith("BLUEPAPER_"):
+            monkeypatch.delenv(name)
 
 
 @pytest.fixture

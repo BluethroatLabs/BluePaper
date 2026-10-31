@@ -56,6 +56,14 @@ class MemoryTableStore:
         with self._lock:
             return sum(1 for row in self._rows.values() if row.status.value == status)
 
+    def count_active(self, owner: str) -> int:
+        with self._lock:
+            return sum(
+                1
+                for row in self._rows.values()
+                if row.owner == owner and row.status in _ACTIVE
+            )
+
 
 class MemoryQueue:
     def __init__(self) -> None:
@@ -99,6 +107,24 @@ class MemoryQueue:
                 )
             ]
 
+    def extend(self, lease: QueueLease, visibility_timeout: int) -> QueueLease | None:
+        now = time.time()
+        with self._lock:
+            for item in self._items:
+                if (
+                    item.conversion_id == lease.conversion_id
+                    and item.pop_receipt == lease.pop_receipt
+                    and item.visible_at > now
+                ):
+                    item.visible_at = now + visibility_timeout
+                    item.pop_receipt = uuid.uuid4().hex
+                    return QueueLease(
+                        conversion_id=item.conversion_id,
+                        pop_receipt=item.pop_receipt,
+                        dequeue_count=item.dequeue_count,
+                    )
+        return None
+
     def depth(self) -> int:
         now = time.time()
         with self._lock:
@@ -119,6 +145,9 @@ class _QueueItem:
         self.visible_at = visible_at
         self.dequeue_count = dequeue_count
         self.pop_receipt = pop_receipt
+
+
+_ACTIVE = (ConversionStatus.queued, ConversionStatus.running)
 
 
 def memory_stores() -> Stores:

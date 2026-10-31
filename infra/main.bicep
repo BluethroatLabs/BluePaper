@@ -8,6 +8,13 @@ param prefix string = 'bluepaper'
 @description('Bearer API key for the BluePaper HTTP API')
 param apiKey string
 
+@description('Client id of the Bluethroat GitHub App')
+param githubClientId string
+
+@secure()
+@description('Client secret of the Bluethroat GitHub App')
+param githubClientSecret string
+
 @secure()
 @description('Cloudflare Turnstile secret for siteverify')
 param turnstileSecret string
@@ -128,6 +135,7 @@ resource apiApp 'Microsoft.App/containerApps@2025-07-01' = {
       }
       secrets: [
         { name: 'api-key', value: apiKey }
+        { name: 'github-client-secret', value: githubClientSecret }
         { name: 'turnstile-secret', value: turnstileSecret }
       ]
       registries: [
@@ -144,6 +152,8 @@ resource apiApp 'Microsoft.App/containerApps@2025-07-01' = {
           image: apiImage
           env: [
             { name: 'BLUEPAPER_API_KEY', secretRef: 'api-key' }
+            { name: 'BLUEPAPER_GITHUB_CLIENT_ID', value: githubClientId }
+            { name: 'BLUEPAPER_GITHUB_CLIENT_SECRET', secretRef: 'github-client-secret' }
             { name: 'BLUEPAPER_STORAGE_BACKEND', value: 'azure' }
             { name: 'BLUEPAPER_ISOLATION', value: 'aca' }
             { name: 'BLUEPAPER_AZURE_STORAGE_ACCOUNT', value: storageAccount.name }

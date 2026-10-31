@@ -83,7 +83,7 @@ sequenceDiagram
 
 ### Authentication and tenancy
 
-Integrators send `Authorization: Bearer <api-key>` on conversion routes. The console at `/` never sends that key. `POST /v1/conversions` accepts a completed Cloudflare Turnstile token instead (`cf-turnstile-response`). A conversion queued that way is readable and deletable by anyone who has its id. Conversions queued with an API key still require the key; a valid key does not require Turnstile. `GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/healthz`, `/openapi.json`, `/docs`, and `/redoc` do not require a key. v1 is a **single-tenant** REST API in the operator’s Azure subscription. Samples stay in that tenant. This is not a public multi-tenant SaaS.
+Integrators send `Authorization: Bearer <api-key>` on conversion routes. The Bluethroat CLI sends a user access token issued by the same GitHub App used for its device flow. BluePaper validates that token with GitHub and records the numeric GitHub user id as the conversion owner; only that user or the operator API key can read or delete it. The console at `/` sends neither credential. `POST /v1/conversions` accepts a completed Cloudflare Turnstile token instead (`cf-turnstile-response`). A conversion queued that way is readable and deletable by anyone who has its id. Conversions queued with an API key still require the key; a valid bearer credential does not require Turnstile. `GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`, `/for-agents`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/healthz`, `/openapi.json`, `/docs`, and `/redoc` do not require authentication. All samples remain in the operator’s Azure subscription.
 
 ### Pinning
 

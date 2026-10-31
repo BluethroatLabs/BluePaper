@@ -231,8 +231,84 @@ def test_queue_saturated_is_503(
     assert response.status_code == 503
 
 
-def test_concurrency_limit_is_429(client: TestClient, stores: Stores) -> None:
-    for i in range(2):
+def _guest_client(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> TestClient:
+    from bluepaper.api import turnstile
+    from bluepaper.api.app import create_app
+
+    monkeypatch.setattr(
+        turnstile,
+        "_siteverify",
+        lambda secret, token, remote_ip: {
+            "success": True,
+            "action": "queue-conversion",
+            "hostname": "localhost",
+        },
+    )
+    settings.turnstile_secret = "test-secret"
+    settings.turnstile_hostnames = "localhost"
+    return TestClient(create_app(settings, stores))
+
+
+def _guest_post(client: TestClient, ip: str) -> int:
+    return client.post(
+        "/v1/conversions",
+        headers={"X-Forwarded-For": ip, "cf-turnstile-response": "token"},
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+    ).status_code
+
+
+def test_concurrency_limit_is_per_guest_address(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings.max_queue_depth = 10
+    gated = _guest_client(settings, stores, monkeypatch)
+    assert _guest_post(gated, "198.51.100.1") == 202
+    assert _guest_post(gated, "198.51.100.1") == 202
+    assert _guest_post(gated, "198.51.100.1") == 429
+    # Another caller is not throttled by the first one's uploads.
+    assert _guest_post(gated, "198.51.100.2") == 202
+
+
+def test_guest_owner_does_not_store_the_raw_address(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gated = _guest_client(settings, stores, monkeypatch)
+    response = gated.post(
+        "/v1/conversions",
+        headers={"X-Forwarded-For": "198.51.100.7", "cf-turnstile-response": "token"},
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    record = stores.table.get(response.json()["id"])
+    assert record is not None
+    assert record.owner is not None
+    assert record.owner.startswith("guest:")
+    assert "198.51.100.7" not in record.owner
+
+
+def test_finished_conversions_free_the_slot(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings.max_queue_depth = 10
+    gated = _guest_client(settings, stores, monkeypatch)
+    assert _guest_post(gated, "198.51.100.1") == 202
+    assert _guest_post(gated, "198.51.100.1") == 202
+    for status in (ConversionStatus.succeeded, ConversionStatus.failed):
+        lease = stores.queue.lease(60)
+        assert lease is not None
+        record = stores.table.get(lease.conversion_id)
+        assert record is not None
+        record.status = status
+        stores.table.update(record)
+        stores.queue.complete(lease)
+    assert _guest_post(gated, "198.51.100.1") == 202
+
+
+def test_other_callers_running_jobs_do_not_cause_429(
+    client: TestClient, stores: Stores
+) -> None:
+    for i in range(4):
         stores.table.create(
             ConversionRecord(
                 id=f"cnv_running_{i}",
@@ -240,6 +316,7 @@ def test_concurrency_limit_is_429(client: TestClient, stores: Stores) -> None:
                 sha256="a" * 64,
                 nbytes=1,
                 created_at=utc_now(),
+                owner=f"github:{100 + i}",
             )
         )
     response = client.post(
@@ -247,7 +324,7 @@ def test_concurrency_limit_is_429(client: TestClient, stores: Stores) -> None:
         headers=auth(),
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
     )
-    assert response.status_code == 429
+    assert response.status_code == 202
 
 
 def test_source_is_public(client: TestClient) -> None:
@@ -601,8 +678,8 @@ def test_turnstile_accepts_verified_token(
     gated = TestClient(create_app(settings, stores))
     response = gated.post(
         "/v1/conversions",
+        headers={"cf-turnstile-response": "fresh-token"},
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
-        data={"cf-turnstile-response": "fresh-token"},
     )
     assert response.status_code == 202
     created = response.json()
@@ -635,8 +712,8 @@ def test_turnstile_rejects_wrong_hostname(
     gated = TestClient(create_app(settings, stores))
     response = gated.post(
         "/v1/conversions",
+        headers={"cf-turnstile-response": "fresh-token"},
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
-        data={"cf-turnstile-response": "fresh-token"},
     )
     assert response.status_code == 403
 
@@ -658,9 +735,8 @@ def test_invalid_key_does_not_fall_through_to_turnstile(
     gated = TestClient(create_app(settings, stores))
     response = gated.post(
         "/v1/conversions",
-        headers=auth("nope"),
+        headers={**auth("nope"), "cf-turnstile-response": "fresh-token"},
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
-        data={"cf-turnstile-response": "fresh-token"},
     )
     assert response.status_code == 401
 
@@ -687,8 +763,8 @@ def test_turnstile_test_secret_accepts_dummy_payload(
     gated = TestClient(create_app(settings, stores))
     response = gated.post(
         "/v1/conversions",
+        headers={"cf-turnstile-response": "XXXX.DUMMY.TOKEN.XXXX"},
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
-        data={"cf-turnstile-response": "XXXX.DUMMY.TOKEN.XXXX"},
     )
     assert response.status_code == 202
 
@@ -702,3 +778,104 @@ def test_report_and_pdf_unknown_are_404(client: TestClient) -> None:
     assert (
         client.get(f"/v1/conversions/{missing}/pdf", headers=auth()).status_code == 404
     )
+
+
+def test_oversized_content_length_is_refused_unread(client: TestClient) -> None:
+    import starlette.datastructures as sd
+
+    reads: list[int] = []
+    original = sd.UploadFile.write
+
+    async def counting_write(self: sd.UploadFile, data: bytes) -> None:
+        reads.append(len(data))
+        await original(self, data)
+
+    sd.UploadFile.write = counting_write  # type: ignore[method-assign]
+    try:
+        big = b"\0" * (2 * 1024 * 1024)  # twice the 1 MiB test limit
+        response = client.post(
+            "/v1/conversions",
+            headers=auth(),
+            files={"file": ("doc.pdf", big, "application/pdf")},
+        )
+    finally:
+        sd.UploadFile.write = original  # type: ignore[method-assign]
+    assert response.status_code == 413
+    assert reads == []
+
+
+def test_streamed_body_over_the_limit_is_cut_off(client: TestClient) -> None:
+    boundary = "bp"
+    head = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="doc.pdf"\r\n'
+        "Content-Type: application/pdf\r\n\r\n"
+    ).encode()
+
+    def chunks():  # no Content-Length: sent chunked
+        yield head
+        for _ in range(40):
+            yield b"\0" * (64 * 1024)
+        yield f"\r\n--{boundary}--\r\n".encode()
+
+    response = client.post(
+        "/v1/conversions",
+        headers={
+            **auth(),
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        content=chunks(),
+    )
+    assert response.status_code == 413
+
+
+def test_anonymous_upload_is_refused_before_the_body_is_read(
+    settings: Settings, stores: Stores
+) -> None:
+    import starlette.datastructures as sd
+
+    from bluepaper.api.app import create_app
+
+    settings.turnstile_secret = "test-secret"
+    settings.turnstile_hostnames = "localhost"
+    gated = TestClient(create_app(settings, stores))
+    reads: list[int] = []
+    original = sd.UploadFile.write
+
+    async def counting_write(self: sd.UploadFile, data: bytes) -> None:
+        reads.append(len(data))
+        await original(self, data)
+
+    sd.UploadFile.write = counting_write  # type: ignore[method-assign]
+    try:
+        anonymous = gated.post(
+            "/v1/conversions",
+            files={"file": ("doc.pdf", b"%PDF-1.4" * 1000, "application/pdf")},
+        )
+        bad_key = gated.post(
+            "/v1/conversions",
+            headers=auth("nope"),
+            files={"file": ("doc.pdf", b"%PDF-1.4" * 1000, "application/pdf")},
+        )
+    finally:
+        sd.UploadFile.write = original  # type: ignore[method-assign]
+    assert anonymous.status_code == 403
+    assert bad_key.status_code == 401
+    assert reads == []
+
+
+def test_turnstile_token_in_the_form_is_not_accepted(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gated = _guest_client(settings, stores, monkeypatch)
+    response = gated.post(
+        "/v1/conversions",
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+        data={"cf-turnstile-response": "token"},
+    )
+    assert response.status_code == 403
+
+
+def test_upload_without_a_file_is_422(client: TestClient) -> None:
+    response = client.post("/v1/conversions", headers=auth(), data={"ocr_lang": "eng"})
+    assert response.status_code == 422
