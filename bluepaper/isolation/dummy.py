@@ -4,6 +4,7 @@ import subprocess
 from collections.abc import Callable
 from io import BytesIO
 
+from bluepaper.isolation.stop import StopSignal
 from dangerzone.conversion_errors import INT_BYTES
 from dangerzone.document import Document
 from dangerzone.isolation_provider.base import IsolationProvider
@@ -41,12 +42,13 @@ class InProcessDummy(IsolationProvider):
         document: Document,
         ocr_lang: str | None,
         progress_callback: Callable | None = None,
+        stop: StopSignal | None = None,
     ) -> None:
         self.progress_callback = progress_callback
         document.mark_as_converting()
         try:
             self.convert_from_pixel_stream(
-                document, ocr_lang, BytesIO(dummy_pixel_protocol())
+                document, ocr_lang, BytesIO(dummy_pixel_protocol()), stop=stop
             )
             document.mark_as_safe()
         except Exception:

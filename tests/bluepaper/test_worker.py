@@ -32,7 +32,11 @@ from tests.bluepaper.conftest import auth
 
 class FailingIsolation:
     def convert(
-        self, document: Any, ocr_lang: str | None, progress_callback: object = None
+        self,
+        document: Any,
+        ocr_lang: str | None,
+        progress_callback: object = None,
+        stop: Any = None,
     ) -> None:
         document.mark_as_converting()
         document.mark_as_failed()
@@ -189,7 +193,11 @@ def test_failed_ocr_does_not_claim_pixel_rebuild(
 ) -> None:
     class OcrFailIsolation:
         def convert(
-            self, document: Any, ocr_lang: str | None, progress_callback: object = None
+            self,
+            document: Any,
+            ocr_lang: str | None,
+            progress_callback: object = None,
+            stop: Any = None,
         ) -> None:
             document.mark_as_converting()
             document.mark_as_failed()
@@ -228,7 +236,11 @@ def test_failed_ocr_with_hits_keeps_indicators_informational(
 ) -> None:
     class OcrFailIsolation:
         def convert(
-            self, document: Any, ocr_lang: str | None, progress_callback: object = None
+            self,
+            document: Any,
+            ocr_lang: str | None,
+            progress_callback: object = None,
+            stop: Any = None,
         ) -> None:
             document.mark_as_failed()
             raise RuntimeError("code=3: Tesseract language initialisation failed")
@@ -383,7 +395,11 @@ def test_conversion_over_budget_fails_the_row_without_waiting(
 
     class HangingIsolation:
         def convert(
-            self, document: Any, ocr_lang: str | None, progress_callback: Any = None
+            self,
+            document: Any,
+            ocr_lang: str | None,
+            progress_callback: Any = None,
+            stop: Any = None,
         ) -> None:
             document.mark_as_converting()
             release.wait(timeout=10)
@@ -452,7 +468,11 @@ def test_isolation_exception_name_is_recorded(
 ) -> None:
     class BoomIsolation:
         def convert(
-            self, document: Any, ocr_lang: str | None, progress_callback: object = None
+            self,
+            document: Any,
+            ocr_lang: str | None,
+            progress_callback: object = None,
+            stop: Any = None,
         ) -> None:
             raise ValueError("sandbox exploded")
 
@@ -472,7 +492,11 @@ def test_cancel_during_convert_keeps_cancelled(
             self.release = threading.Event()
 
         def convert(
-            self, document: Any, ocr_lang: str | None, progress_callback: object = None
+            self,
+            document: Any,
+            ocr_lang: str | None,
+            progress_callback: object = None,
+            stop: Any = None,
         ) -> None:
             document.mark_as_converting()
             self.started.set()
@@ -545,3 +569,70 @@ def test_report_missing_blob_is_409(
     stores.blobs.delete(report_blob_key(conversion_id))
     response = client.get(f"/v1/conversions/{conversion_id}/report", headers=auth())
     assert response.status_code == 409
+
+
+def test_conversion_over_budget_is_stopped(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
+    seen: dict[str, Any] = {}
+    stopped = threading.Event()
+
+    class StoppableIsolation:
+        def convert(
+            self,
+            document: Any,
+            ocr_lang: str | None,
+            progress_callback: Any = None,
+            stop: Any = None,
+        ) -> None:
+            seen["stop"] = stop
+            document.mark_as_converting()
+            stop.on_stop(stopped.set)
+            while not stop.is_set():
+                time.sleep(0.01)
+            raise RuntimeError("stopped")
+
+    settings.conversion_timeout_seconds = 0.2
+    conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
+    assert process_one(settings, stores, StoppableIsolation()) is True
+    # The job does not just stop waiting: it tells the conversion to die.
+    assert stopped.wait(timeout=2)
+    assert seen["stop"].is_set()
+    record = stores.table.get(conversion_id)
+    assert record is not None
+    assert record.status == ConversionStatus.failed
+    assert record.error == CONVERSION_TIMEOUT_ERROR
+
+
+def test_job_longer_than_the_lease_is_not_run_twice(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
+    starts: list[str] = []
+
+    class SlowIsolation(InProcessDummy):
+        def convert(
+            self,
+            document: Any,
+            ocr_lang: str | None,
+            progress_callback: Any = None,
+            stop: Any = None,
+        ) -> None:
+            starts.append(threading.current_thread().name)
+            time.sleep(2.5)
+            super().convert(document, ocr_lang, progress_callback, stop)
+
+    settings.visibility_timeout_seconds = 1
+    conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
+    first = threading.Thread(
+        target=process_one, args=(settings, stores, SlowIsolation()), daemon=True
+    )
+    first.start()
+    time.sleep(1.5)  # past the original lease
+    # A second worker polling now finds nothing: the lease was renewed.
+    assert process_one(settings, stores, SlowIsolation()) is False
+    first.join(timeout=10)
+    assert len(starts) == 1
+    record = stores.table.get(conversion_id)
+    assert record is not None
+    assert record.status == ConversionStatus.succeeded
+    assert stores.queue.lease(1) is None

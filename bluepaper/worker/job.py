@@ -7,7 +7,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, Self
 
 from bluepaper.config import (
     Settings,
@@ -16,6 +16,7 @@ from bluepaper.config import (
     pdf_blob_key,
     report_blob_key,
 )
+from bluepaper.isolation.stop import StopSignal
 from bluepaper.models import (
     ConversionOutcome,
     ConversionRecord,
@@ -76,6 +77,7 @@ class IsolationLike(Protocol):
         document: Document,
         ocr_lang: str | None,
         progress_callback: Callable | None = None,
+        stop: StopSignal | None = None,
     ) -> None: ...
 
 
@@ -120,20 +122,70 @@ def process_one(
         stores.queue.complete(lease)
         return True
 
-    current.status = ConversionStatus.running
-    current.started_at = current.started_at or utc_now()
-    current.stage = "doc_to_pixels"
-    stores.table.update(current)
+    with _LeaseKeeper(stores, lease, settings.visibility_timeout_seconds) as keeper:
+        current.status = ConversionStatus.running
+        current.started_at = current.started_at or utc_now()
+        current.stage = "doc_to_pixels"
+        stores.table.update(current)
 
-    try:
-        _run(settings, stores, isolation, current)
-    except Exception:
-        # A crash must not leave the row ``running`` with no worker on it. It
-        # would count against its owner's limit until the lease ran out.
-        _release_crashed(settings, stores, lease, current.id)
-        raise
-    stores.queue.complete(lease)
+        try:
+            _run(settings, stores, isolation, current)
+        except Exception:
+            # A crash must not leave the row ``running`` with no worker on it.
+            # It would count against its owner's limit until the lease ran out.
+            _release_crashed(settings, stores, keeper.finish(), current.id)
+            raise
+        stores.queue.complete(keeper.finish())
     return True
+
+
+class _LeaseKeeper:
+    """Renews the queue lease while a job runs.
+
+    Without it, a job that outlives ``visibility_timeout_seconds`` makes the
+    message visible again and a second worker converts the same upload.
+    """
+
+    def __init__(self, stores: Stores, lease: QueueLease, visibility_timeout: int):
+        self._queue = stores.queue
+        self._lease = lease
+        self._timeout = visibility_timeout
+        self._done = threading.Event()
+        self._thread = threading.Thread(
+            target=self._renew_until_done,
+            name=f"lease-{lease.conversion_id}",
+            daemon=True,
+        )
+
+    def finish(self) -> QueueLease:
+        """Stop renewing and return the current lease, to complete it."""
+        self._done.set()
+        if self._thread.is_alive():
+            self._thread.join()
+        return self._lease
+
+    def __enter__(self) -> Self:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.finish()
+
+    def _renew_until_done(self) -> None:
+        # A third of the timeout leaves two more tries before the lease lapses.
+        interval = max(self._timeout / 3, 0.1)
+        while not self._done.wait(interval):
+            try:
+                renewed = self._queue.extend(self._lease, self._timeout)
+            except Exception:
+                log.exception(
+                    "lease renewal failed conversion_id=%s", self._lease.conversion_id
+                )
+                continue
+            if renewed is None:
+                log.warning("lease lost conversion_id=%s", self._lease.conversion_id)
+                return
+            self._lease = renewed
 
 
 def _run(
@@ -156,12 +208,13 @@ def _run(
     pdf_bytes: bytes | None = None
     pages: int | None = None
     conv_error: str | None = None
-    # Set once this job stops waiting. A conversion that ran past its budget
-    # may still report progress, and must not write ``running`` back.
-    abandoned = threading.Event()
+    # Set once this job stops waiting. It deletes the sandbox and kills OCR
+    # workers. A conversion still winding down may report progress, and must
+    # not write ``running`` back.
+    stop = StopSignal()
 
     def on_progress(_err: object, text: str, _pct: object) -> None:
-        if not abandoned.is_set():
+        if not stop.is_set():
             _update_stage(stores, current.id, text)
 
     def do_scan() -> ScanResult:
@@ -172,11 +225,11 @@ def _run(
         if latest is not None and latest.status == ConversionStatus.cancelled:
             return None
         return _convert_document(
-            isolation, source, current.filename, current.ocr_lang, on_progress
+            isolation, source, current.filename, current.ocr_lang, on_progress, stop
         )
 
-    # Not a ``with`` block: leaving one waits for every thread, so a
-    # conversion stuck in the sandbox would hold this job (and the row) forever.
+    # Not a ``with`` block: leaving one waits for every thread. A conversion
+    # that ignores ``stop`` must not hold this job (and the row) forever.
     pool = ThreadPoolExecutor(max_workers=2)
     try:
         scan_future = pool.submit(do_scan)
@@ -204,7 +257,7 @@ def _run(
             log.exception("conversion failed conversion_id=%s", current.id)
             conv_error = public_conversion_error(exc)
     finally:
-        abandoned.set()
+        stop.set()
         pool.shutdown(wait=False, cancel_futures=True)
 
     latest = stores.table.get(current.id)
@@ -284,6 +337,7 @@ def _convert_document(
     filename: str,
     ocr_lang: str | None,
     progress_callback: Callable | None,
+    stop: StopSignal,
 ) -> tuple[bytes, int]:
     suffix = Path(filename).suffix or ".bin"
     with tempfile.TemporaryDirectory() as tmp:
@@ -291,7 +345,7 @@ def _convert_document(
         dst = Path(tmp) / "output-safe.pdf"
         src.write_bytes(original)
         document = Document(str(src), str(dst))
-        isolation.convert(document, ocr_lang, progress_callback)
+        isolation.convert(document, ocr_lang, progress_callback, stop=stop)
         if not document.is_safe() or not dst.is_file():
             raise RuntimeError("conversion failed")
         pdf_bytes = dst.read_bytes()

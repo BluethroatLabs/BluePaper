@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from bluepaper.config import ZERO_HITS_CAVEAT
@@ -195,3 +197,32 @@ def test_aho_corasick_suffix_outputs() -> None:
     assert hits["she"] == (1, 0)
     assert hits["he"] == (1, 1)
     assert "his" not in hits
+
+
+def test_scan_deadline_is_checked_during_the_match() -> None:
+    # 8 MB of "/JS ": the matcher alone takes seconds, far over the deadline.
+    data = b"/JS " * 2_000_000
+    started = time.monotonic()
+    with pytest.raises(ScanTimeout):
+        scan_bytes(data, timeout_seconds=0.05)
+    assert time.monotonic() - started < 1.0
+
+
+def test_scan_deadline_is_checked_inside_one_long_pdf_name() -> None:
+    # One name with escapes, no delimiter: the expansion loop must stop too.
+    data = b"/" + b"#41" * 3_000_000
+    started = time.monotonic()
+    with pytest.raises(ScanTimeout):
+        scan_bytes(data, timeout_seconds=0.05)
+    assert time.monotonic() - started < 1.0
+
+
+def test_aho_corasick_matches_across_check_boundaries() -> None:
+    from bluepaper.scan.matcher import CHECK_EVERY
+
+    checks: list[int] = []
+    matcher = AhoCorasick([("js", b"/JavaScript")])
+    data = b"x" * (CHECK_EVERY - 4) + b"/JavaScript" + b"x" * CHECK_EVERY
+    hits = matcher.find(data, lambda: checks.append(1))
+    assert hits["js"] == (1, CHECK_EVERY - 4)
+    assert len(checks) == 3

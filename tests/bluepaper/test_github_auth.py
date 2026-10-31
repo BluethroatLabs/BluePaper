@@ -99,10 +99,13 @@ def test_github_token_creates_a_user_owned_conversion(
     assert record is not None
     assert record.guest is False
     assert record.github_user_id == 7
-    assert github_client.get(
-        f"/v1/conversions/{conversion_id}",
-        headers=_bearer(SAME_USER_TOKEN),
-    ).status_code == 200
+    assert (
+        github_client.get(
+            f"/v1/conversions/{conversion_id}",
+            headers=_bearer(SAME_USER_TOKEN),
+        ).status_code
+        == 200
+    )
     assert calls == [TOKEN, SAME_USER_TOKEN]
 
 
@@ -150,7 +153,9 @@ def test_other_github_user_cannot_see_or_delete_conversion(
     ).json()
     path = f"/v1/conversions/{created['id']}"
     assert github_client.get(path, headers=_bearer(OTHER_USER_TOKEN)).status_code == 404
-    assert github_client.delete(path, headers=_bearer(OTHER_USER_TOKEN)).status_code == 404
+    assert (
+        github_client.delete(path, headers=_bearer(OTHER_USER_TOKEN)).status_code == 404
+    )
     assert stores.table.get(created["id"]) is not None
     # The operator API key retains administrative access.
     assert github_client.get(path, headers=auth()).status_code == 200
@@ -183,10 +188,13 @@ def test_valid_github_token_is_cached(
         headers=_bearer(),
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
     ).json()
-    assert github_client.get(
-        f"/v1/conversions/{created['id']}",
-        headers=_bearer(),
-    ).status_code == 200
+    assert (
+        github_client.get(
+            f"/v1/conversions/{created['id']}",
+            headers=_bearer(),
+        ).status_code
+        == 200
+    )
     assert calls == [TOKEN]
 
 
@@ -278,3 +286,65 @@ def test_token_check_uses_hardened_transport(
     assert captured["json"] == {"access_token": TOKEN}
     assert captured["init"]["trust_env"] is False
     assert captured["init"]["follow_redirects"] is False
+
+
+JUNK = "ghu_" + "j" * 16
+
+
+def test_rejected_token_is_cached(
+    github_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _install(monkeypatch, {JUNK: _Response(404, {"message": "Not Found"})})
+    for _ in range(10):
+        response = github_client.get("/v1/conversions/x", headers=_bearer(JUNK))
+        assert response.status_code == 401
+    assert calls == [JUNK]
+
+
+@pytest.mark.parametrize("status", [401, 403, 422, 429])
+def test_github_refusing_the_check_is_503_not_401(
+    github_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+) -> None:
+    calls = _install(monkeypatch, {TOKEN: _Response(status, {"message": "limited"})})
+    for _ in range(2):
+        response = github_client.get("/v1/conversions/x", headers=_bearer())
+        assert response.status_code == 503
+    # Not cached as a rejection: the user is checked again once GitHub recovers.
+    assert calls == [TOKEN, TOKEN]
+
+
+def test_uncached_checks_are_throttled_per_client(
+    github_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from bluepaper.api import github_auth
+
+    calls: list[str] = []
+
+    def fake(client_id: str, secret: str, token: str) -> _Response:
+        calls.append(token)
+        if token == TOKEN:
+            return _Response(200, _body())
+        return _Response(404, {"message": "Not Found"})
+
+    monkeypatch.setattr("bluepaper.api.github_auth._check_token", fake)
+    attacker = {"X-Forwarded-For": "203.0.113.9"}
+    codes = [
+        github_client.get(
+            "/v1/conversions/x",
+            headers={**attacker, **_bearer(f"ghu_{n:020d}")},
+        ).status_code
+        for n in range(40)
+    ]
+    assert codes.count(401) == int(github_auth._CLIENT_BURST)
+    assert codes[-1] == 503
+    assert len(calls) == int(github_auth._CLIENT_BURST)
+    # Someone else is still checked.
+    other = github_client.get(
+        "/v1/conversions/x",
+        headers={"X-Forwarded-For": "198.51.100.4", **_bearer()},
+    )
+    assert other.status_code == 404

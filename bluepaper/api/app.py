@@ -14,7 +14,9 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 from starlette.responses import Response as StarletteResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from bluepaper.api.routes import router
 from bluepaper.api.site import PAGES_DIR, mount_site, render_layout
@@ -29,6 +31,76 @@ log = logging.getLogger("bluepaper.api")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 # Status, report, and PDF are bearer-or-capability-id protected documents.
 _DOCUMENT_GET = re.compile(r"^/v1/conversions/[^/]+(?:/(?:report|pdf))?$")
+# Room for multipart boundaries, part headers and the small text fields.
+_FORM_OVERHEAD = 64 * 1024
+
+
+class _BodyTooLarge(Exception):
+    pass
+
+
+class BodyLimit:
+    """Refuse request bodies over ``limit`` bytes before they are stored.
+
+    A declared Content-Length over the limit is refused unread. A body that
+    streams past it (chunked, or a false Content-Length) is cut off there.
+    """
+
+    def __init__(self, app: ASGIApp, limit: int) -> None:
+        self.app = app
+        self.limit = limit
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        declared = _content_length(scope)
+        if declared is not None and declared > self.limit:
+            await _too_large(scope, receive, send)
+            return
+        received = 0
+        started = False
+
+        async def limited_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.limit:
+                    raise _BodyTooLarge()
+            return message
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, tracking_send)
+        except _BodyTooLarge:
+            if started:
+                raise
+            await _too_large(scope, receive, send)
+
+
+def _content_length(scope: Scope) -> int | None:
+    for name, value in scope.get("headers", []):
+        if name == b"content-length":
+            try:
+                return int(value)
+            except ValueError:
+                return None
+    return None
+
+
+async def _too_large(scope: Scope, receive: Receive, send: Send) -> None:
+    response = JSONResponse(
+        {"detail": "file too large"},
+        status_code=413,
+        headers={"Connection": "close"},
+    )
+    await response(scope, receive, send)
 
 
 def _openapi(application: FastAPI) -> dict:
@@ -67,8 +139,9 @@ Safety comes from destruction, not detection. Zero regexp hits is not "clean."
 Integrators send `Authorization: Bearer <api-key>` on conversion routes.
 The Bluethroat CLI sends its GitHub App user token instead; those conversions
 are visible only to that GitHub user (or the operator API key). The console at
-`/` sends neither. `POST /v1/conversions` accepts a completed Turnstile token
-instead, and that conversion id then authorizes status, report, PDF, and delete.
+`/` sends neither. `POST /v1/conversions` accepts a completed Turnstile token in
+the `CF-Turnstile-Response` header instead, and that conversion id then
+authorizes status, report, PDF, and delete.
 Key-created conversions still require the API key.
 `GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`, `/for-agents`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,
 `/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.
@@ -115,6 +188,11 @@ def create_app(
         if request.method == "GET" and _DOCUMENT_GET.match(request.url.path):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    # Added last, so it is the outermost app middleware and sees the body first.
+    application.add_middleware(
+        BodyLimit, limit=settings.max_upload_bytes + _FORM_OVERHEAD
+    )
 
     @application.get("/healthz", response_model=HealthResponse, tags=["meta"])
     def healthz() -> HealthResponse:

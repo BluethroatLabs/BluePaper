@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "BluePaper",
-    "description": "Upload an untrusted document and receive a PDF rebuilt from pixels, plus a\nregexp report on the original bytes.\n\nSafety comes from destruction, not detection. Zero regexp hits is not \"clean.\"\n\nIntegrators send `Authorization: Bearer <api-key>` on conversion routes.\nThe Bluethroat CLI sends its GitHub App user token instead; those conversions\nare visible only to that GitHub user (or the operator API key). The console at\n`/` sends neither. `POST /v1/conversions` accepts a completed Turnstile token\ninstead, and that conversion id then authorizes status, report, PDF, and delete.\nKey-created conversions still require the API key.\n`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`, `/for-agents`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,\n`/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.",
+    "description": "Upload an untrusted document and receive a PDF rebuilt from pixels, plus a\nregexp report on the original bytes.\n\nSafety comes from destruction, not detection. Zero regexp hits is not \"clean.\"\n\nIntegrators send `Authorization: Bearer <api-key>` on conversion routes.\nThe Bluethroat CLI sends its GitHub App user token instead; those conversions\nare visible only to that GitHub user (or the operator API key). The console at\n`/` sends neither. `POST /v1/conversions` accepts a completed Turnstile token in\nthe `CF-Turnstile-Response` header instead, and that conversion id then\nauthorizes status, report, PDF, and delete.\nKey-created conversions still require the API key.\n`GET /v1/source`, the site pages (`/`, `/about`, `/how-it-works`, `/for-agents`), `/ui`, `/robots.txt`, `/sitemap.xml`, `/llms.txt`,\n`/healthz`, `/openapi.json`, `/docs`, and `/redoc` are unauthenticated.",
     "license": {
       "name": "AGPL-3.0",
       "url": "https://www.gnu.org/licenses/agpl-3.0.html"
@@ -38,16 +38,32 @@
         ],
         "summary": "Queue a conversion",
         "operationId": "create_conversion_v1_conversions_post",
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_create_conversion_v1_conversions_post"
-              }
-            }
+        "security": [
+          {
+            "HTTPBearer": []
           },
-          "required": true
-        },
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "cf-turnstile-response",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Cloudflare Turnstile token. Required when the integrator API key or GitHub token is omitted.",
+              "title": "Cf-Turnstile-Response"
+            },
+            "description": "Cloudflare Turnstile token. Required when the integrator API key or GitHub token is omitted."
+          }
+        ],
         "responses": {
           "202": {
             "description": "Successful Response",
@@ -140,12 +156,37 @@
             }
           }
         },
-        "security": [
-          {
-            "HTTPBearer": []
-          },
-          {}
-        ]
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "title": "File",
+                    "type": "string",
+                    "contentMediaType": "application/octet-stream"
+                  },
+                  "ocr_lang": {
+                    "title": "Ocr Lang",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/conversions/{conversion_id}": {
@@ -488,43 +529,6 @@
           "created_at"
         ],
         "title": "AcceptedResponse"
-      },
-      "Body_create_conversion_v1_conversions_post": {
-        "properties": {
-          "file": {
-            "type": "string",
-            "contentMediaType": "application/octet-stream",
-            "title": "File"
-          },
-          "ocr_lang": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ocr Lang"
-          },
-          "cf-turnstile-response": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cf-Turnstile-Response",
-            "description": "Cloudflare Turnstile token. Required when the integrator API key or GitHub token is omitted."
-          }
-        },
-        "type": "object",
-        "required": [
-          "file"
-        ],
-        "title": "Body_create_conversion_v1_conversions_post"
       },
       "ConversionOutcome": {
         "properties": {

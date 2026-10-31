@@ -10,9 +10,9 @@ import threading
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Iterator
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, wait
 from io import BytesIO
-from typing import IO
+from typing import IO, Protocol
 
 import fitz
 from colorama import Fore, Style
@@ -27,6 +27,28 @@ log = logging.getLogger(__name__)
 TIMEOUT_EXCEPTION = 15
 TIMEOUT_GRACE = 15
 TIMEOUT_FORCE = 5
+# How often a blocked OCR wait looks at the stop signal.
+STOP_POLL_SECONDS = 0.5
+
+
+class StopFlag(Protocol):
+    def is_set(self) -> bool: ...
+
+
+class ConversionStopped(Exception):
+    """The caller stopped the conversion (time budget or cancel)."""
+
+
+def _kill_pool(pool: ProcessPoolExecutor) -> None:
+    """Kill OCR workers mid-page. ``shutdown`` alone waits for them."""
+    kill = getattr(pool, "kill_workers", None)  # Python 3.14+
+    if kill is not None:
+        kill()
+    else:
+        for proc in list((getattr(pool, "_processes", None) or {}).values()):
+            with contextlib.suppress(Exception):
+                proc.kill()
+    pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _signal_process_group(p: subprocess.Popen, signo: int) -> None:
@@ -207,8 +229,18 @@ class IsolationProvider(ABC):
         document: Document,
         ocr_lang: str | None,
         stream: IO[bytes],
+        stop: StopFlag | None = None,
     ) -> None:
-        """Rebuild a PDF from Dangerzone's untrusted RGB page protocol."""
+        """Rebuild a PDF from Dangerzone's untrusted RGB page protocol.
+
+        When ``stop`` is set, raise ``ConversionStopped`` and kill the OCR
+        workers instead of finishing the pages already queued.
+        """
+
+        def check_stop() -> None:
+            if stop is not None and stop.is_set():
+                raise ConversionStopped()
+
         percentage = 0.0
         n_pages = read_int(stream)
         if n_pages == 0 or n_pages > errors.MAX_PAGES:
@@ -257,7 +289,10 @@ class IsolationProvider(ABC):
                 if not future.done():
                     if block_until_below is None:
                         break  # non-blocking: stop at first incomplete
-                    future.result()  # blocking: wait for the future to complete
+                    # blocking: wait for the future, but keep checking stop
+                    while not future.done():
+                        check_stop()
+                        wait([future], timeout=STOP_POLL_SECONDS)
                 _page, future = ocr_futures.popleft()
                 page_pdf_bytes = future.result()
                 page_doc = fitz.open("pdf", page_pdf_bytes)
@@ -269,6 +304,7 @@ class IsolationProvider(ABC):
 
         try:
             for page in range(1, n_pages + 1):
+                check_stop()
                 # Block if too many pages are waiting for OCR, to avoid
                 # filling RAM with pixel buffers from the sandbox.
                 # Wait until the queue drains to the number of workers
@@ -324,7 +360,11 @@ class IsolationProvider(ABC):
 
         finally:
             if ocr_pool is not None:
-                ocr_pool.shutdown()
+                if stop is not None and stop.is_set():
+                    _kill_pool(ocr_pool)
+                else:
+                    ocr_pool.shutdown()
+        check_stop()
 
         # Saving it with a different name first, because PyMuPDF cannot handle
         # non-Unicode chars.

@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from bluepaper.api import github_auth
+from bluepaper.api.turnstile import client_ip
 from bluepaper.config import Settings
 
 bearer_scheme = HTTPBearer(
@@ -40,6 +41,7 @@ def unauthorized() -> HTTPException:
 
 
 def authenticate(
+    request: Request,
     credentials: Annotated[
         HTTPAuthorizationCredentials | None,
         Depends(bearer_scheme),
@@ -67,7 +69,7 @@ def authenticate(
             )
         raise unauthorized()
     try:
-        user = github_auth.identify(raw_token, settings)
+        user = github_auth.identify(raw_token, settings, client_ip(request))
     except github_auth.GitHubAuthRejected:
         raise unauthorized() from None
     except github_auth.GitHubAuthUnavailable:

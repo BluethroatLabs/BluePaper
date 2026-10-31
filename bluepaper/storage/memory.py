@@ -107,6 +107,24 @@ class MemoryQueue:
                 )
             ]
 
+    def extend(self, lease: QueueLease, visibility_timeout: int) -> QueueLease | None:
+        now = time.time()
+        with self._lock:
+            for item in self._items:
+                if (
+                    item.conversion_id == lease.conversion_id
+                    and item.pop_receipt == lease.pop_receipt
+                    and item.visible_at > now
+                ):
+                    item.visible_at = now + visibility_timeout
+                    item.pop_receipt = uuid.uuid4().hex
+                    return QueueLease(
+                        conversion_id=item.conversion_id,
+                        pop_receipt=item.pop_receipt,
+                        dequeue_count=item.dequeue_count,
+                    )
+        return None
+
     def depth(self) -> int:
         now = time.time()
         with self._lock:

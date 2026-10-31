@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -339,3 +340,51 @@ def test_azure_queue_lease_and_complete() -> None:
     assert backend.deleted == [lease.raw]
     empty = QueueLease(conversion_id="x", pop_receipt="y", dequeue_count=1)
     queue.complete(empty)
+
+
+def test_memory_queue_extend_keeps_message_hidden(stores: Stores) -> None:
+    stores.queue.enqueue("cnv_ext")
+    lease = stores.queue.lease(1)
+    assert lease is not None
+    renewed = stores.queue.extend(lease, 60)
+    assert renewed is not None
+    assert renewed.pop_receipt != lease.pop_receipt
+    assert renewed.dequeue_count == lease.dequeue_count
+    time.sleep(1.1)
+    assert stores.queue.lease(1) is None
+    # The old receipt is stale; only the renewed lease completes the message.
+    stores.queue.complete(lease)
+    assert stores.queue.extend(lease, 60) is None
+    stores.queue.complete(renewed)
+    assert stores.queue.extend(renewed, 60) is None
+
+
+def test_memory_queue_extend_after_expiry_is_lost(stores: Stores) -> None:
+    stores.queue.enqueue("cnv_exp")
+    lease = stores.queue.lease(0)
+    assert lease is not None
+    assert stores.queue.extend(lease, 60) is None
+
+
+def test_azure_queue_extend(missing_exc: type[Exception]) -> None:
+    backend = _FakeQueue()
+    updated = SimpleNamespace(content="cnv_q", pop_receipt="rcpt2", dequeue_count=1)
+    calls: list[tuple[object, int]] = []
+
+    def update_message(raw: object, *, visibility_timeout: int) -> SimpleNamespace:
+        calls.append((raw, visibility_timeout))
+        if raw is updated:
+            raise missing_exc("gone")
+        return updated
+
+    backend.update_message = update_message  # type: ignore[attr-defined]
+    queue = AzureQueue(SimpleNamespace(get_queue_client=lambda _n: backend), "q")
+    queue.enqueue("cnv_q")
+    lease = queue.lease(30)
+    assert lease is not None
+    renewed = queue.extend(lease, 90)
+    assert renewed is not None
+    assert renewed.pop_receipt == "rcpt2"
+    assert renewed.raw is updated
+    assert calls == [(lease.raw, 90)]
+    assert queue.extend(renewed, 90) is None

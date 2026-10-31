@@ -166,3 +166,52 @@ def test_in_process_dummy_is_not_a_subprocess() -> None:
     assert provider.get_max_parallel_conversions() == 1
     with pytest.raises(NotImplementedError):
         provider.start_doc_to_pixels_proc(Document())
+
+
+def test_pixel_stream_stops_between_pages(tmp_path: Path) -> None:
+    import threading
+
+    from dangerzone.isolation_provider.base import ConversionStopped
+
+    doc = _document(tmp_path)
+    provider = InProcessDummy()
+    stop = threading.Event()
+    pages: list[str] = []
+
+    def progress(_err: bool, text: str, _pct: float) -> None:
+        pages.append(text)
+        stop.set()
+
+    provider.progress_callback = progress
+    with pytest.raises(ConversionStopped):
+        provider.convert_from_pixel_stream(
+            doc, None, BytesIO(dummy_pixel_protocol(pages=5)), stop=stop
+        )
+    assert len(pages) == 1
+    assert not Path(doc.output_filename).exists()
+
+
+@pytest.mark.parametrize("has_kill_workers", [True, False])
+def test_kill_pool_ends_a_busy_ocr_worker(
+    monkeypatch: pytest.MonkeyPatch, has_kill_workers: bool
+) -> None:
+    import multiprocessing as mp
+    import time
+    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures.process import BrokenProcessPool
+
+    from dangerzone.isolation_provider.base import _kill_pool
+
+    if not has_kill_workers:
+        # Production runs Python 3.12, which has no kill_workers().
+        monkeypatch.delattr(ProcessPoolExecutor, "kill_workers", raising=False)
+    pool = ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"))
+    future = pool.submit(time.sleep, 60)
+    deadline = time.monotonic() + 20
+    while not future.running() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    started = time.monotonic()
+    _kill_pool(pool)
+    with pytest.raises(BrokenProcessPool):
+        future.result(timeout=10)
+    assert time.monotonic() - started < 10

@@ -3,6 +3,11 @@
 The distributed ``bluethroat`` CLI obtains a user token through GitHub's
 device flow. BluePaper checks that token with the GitHub App credentials and
 uses the returned numeric user id as the conversion owner.
+
+Every uncached check spends the app's shared GitHub API quota, and anyone can
+send a token-shaped string. So rejections are cached too, uncached checks are
+throttled per client and in total, and GitHub's rate-limit answers become
+"unavailable" (503) rather than "bad token" (401).
 """
 
 from __future__ import annotations
@@ -27,6 +32,15 @@ _API_VERSION = "2026-03-10"
 _TIMEOUT = httpx.Timeout(5.0, connect=3.0)
 _CACHE_TTL = 60.0
 _MAX_CACHE = 1024
+_REJECTED_TTL = 300.0
+_MAX_REJECTED = 4096
+# Uncached checks. One client: a burst of 20, then one per 6 s. Everyone:
+# a burst of 120, then one per second (3,600 an hour, under GitHub's 5,000).
+_CLIENT_BURST = 20.0
+_CLIENT_PER_SECOND = 1 / 6
+_GLOBAL_BURST = 120.0
+_GLOBAL_PER_SECOND = 1.0
+_MAX_CLIENTS = 4096
 
 _CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 _TOKEN_RE = re.compile(r"^(?:ghu|gho)_[A-Za-z0-9_]{16,240}$")
@@ -47,8 +61,44 @@ class GitHubUser:
     login: str
 
 
+class _Throttle:
+    """Token buckets, one per key. Callers hold ``_lock``."""
+
+    def __init__(self, burst: float, per_second: float, max_keys: int) -> None:
+        self._burst = burst
+        self._rate = per_second
+        self._max_keys = max_keys
+        self._buckets: dict[str, tuple[float, float]] = {}
+
+    def allow(self, key: str, now: float) -> bool:
+        tokens, last = self._buckets.get(key, (self._burst, now))
+        tokens = min(self._burst, tokens + (now - last) * self._rate)
+        allowed = tokens >= 1
+        self._buckets[key] = (tokens - 1 if allowed else tokens, now)
+        if len(self._buckets) > self._max_keys:
+            self._prune(now)
+        return allowed
+
+    def clear(self) -> None:
+        self._buckets.clear()
+
+    def _prune(self, now: float) -> None:
+        # A bucket that has refilled is the same as no bucket.
+        refill = self._burst / self._rate
+        self._buckets = {
+            key: value
+            for key, value in self._buckets.items()
+            if now - value[1] < refill
+        }
+        if len(self._buckets) > self._max_keys:
+            self._buckets.clear()
+
+
 _lock = threading.Lock()
 _cache: dict[str, tuple[float, GitHubUser]] = {}
+_rejected: dict[str, float] = {}
+_per_client = _Throttle(_CLIENT_BURST, _CLIENT_PER_SECOND, _MAX_CLIENTS)
+_overall = _Throttle(_GLOBAL_BURST, _GLOBAL_PER_SECOND, 1)
 
 
 def configured(settings: Settings) -> bool:
@@ -72,8 +122,11 @@ def is_user_token(token: str) -> bool:
     return len(token) <= 244 and bool(_TOKEN_RE.fullmatch(token))
 
 
-def identify(token: str, settings: Settings) -> GitHubUser:
-    """Return the GitHub identity represented by ``token``, or raise."""
+def identify(token: str, settings: Settings, client: str | None = None) -> GitHubUser:
+    """Return the GitHub identity represented by ``token``, or raise.
+
+    ``client`` (the caller's address) keys the per-client throttle.
+    """
     client_id = settings.github_client_id or ""
     secret = settings.github_client_secret or ""
     if not configured(settings):
@@ -84,16 +137,39 @@ def identify(token: str, settings: Settings) -> GitHubUser:
         hit = _cache.get(key)
         if hit is not None and hit[0] > now:
             return hit[1]
+        rejected_until = _rejected.get(key)
+        if rejected_until is not None and rejected_until > now:
+            raise GitHubAuthRejected("rejected")
+        if not _per_client.allow(client or "", now) or not _overall.allow("", now):
+            log.warning("github token checks throttled")
+            raise GitHubAuthUnavailable("throttled")
 
+    try:
+        user, ttl = _lookup(client_id, secret, token)
+    except GitHubAuthRejected:
+        with _lock:
+            _rejected[key] = time.monotonic() + _REJECTED_TTL
+            _prune_rejected()
+        raise
+    with _lock:
+        _cache[key] = (time.monotonic() + ttl, user)
+        _prune_cache()
+    return user
+
+
+def _lookup(client_id: str, secret: str, token: str) -> tuple[GitHubUser, float]:
     try:
         response = _check_token(client_id, secret, token)
     except httpx.HTTPError as exc:
         # The exception can retain the request, including both credentials.
         log.warning("github token check failed: %s", type(exc).__name__)
         raise GitHubAuthUnavailable("unreachable") from None
+    if response.status_code == 404:
+        # GitHub's answer for a token this app did not issue, or one revoked.
+        raise GitHubAuthRejected("rejected")
     if response.status_code != 200:
-        if response.status_code in (401, 403, 404, 422):
-            raise GitHubAuthRejected("rejected")
+        # 401: the app credentials are wrong. 403/429: rate limited. 422: the
+        # check endpoint has been spammed. None of these says the token is bad.
         log.warning("github token check HTTP %s", response.status_code)
         raise GitHubAuthUnavailable("status")
     try:
@@ -102,17 +178,15 @@ def identify(token: str, settings: Settings) -> GitHubUser:
         # GitHub's response can echo the token; never log the body.
         log.warning("github token check returned a non-JSON body")
         raise GitHubAuthUnavailable("body") from None
-    user = _user_from(body, client_id)
-    ttl = _ttl(body)
-    with _lock:
-        _cache[key] = (time.monotonic() + ttl, user)
-        _prune_cache()
-    return user
+    return _user_from(body, client_id), _ttl(body)
 
 
 def clear_identity_cache() -> None:
     with _lock:
         _cache.clear()
+        _rejected.clear()
+        _per_client.clear()
+        _overall.clear()
 
 
 def _check_token(client_id: str, secret: str, token: str) -> httpx.Response:
@@ -191,6 +265,18 @@ def _prune_cache() -> None:
         live = dict(ranked[:_MAX_CACHE])
     _cache.clear()
     _cache.update(live)
+
+
+def _prune_rejected() -> None:
+    if len(_rejected) <= _MAX_REJECTED:
+        return
+    now = time.monotonic()
+    live = {key: until for key, until in _rejected.items() if until > now}
+    if len(live) > _MAX_REJECTED:
+        ranked = sorted(live.items(), key=lambda item: item[1], reverse=True)
+        live = dict(ranked[:_MAX_REJECTED])
+    _rejected.clear()
+    _rejected.update(live)
 
 
 def _cache_key(client_id: str, secret: str, token: str) -> str:

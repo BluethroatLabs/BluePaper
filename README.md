@@ -8,7 +8,7 @@ The product contract is [ARCHITECTURE.md](ARCHITECTURE.md). Deep PDF-analysis re
 
 ## HTTP API
 
-Integrators send `Authorization: Bearer <api-key>` on conversion routes. The Bluethroat CLI sends the user token issued by the Bluethroat GitHub App; a conversion created that way is visible only to that GitHub user or the operator API key. The console sends neither: `POST /v1/conversions` accepts a completed Turnstile token instead, and that conversion id then authorizes status, report, PDF, and delete. Conversions created with an API key still require it. `GET /v1/source` is public. Conversion ids look like `cnv_…`. Hashes are SHA-256 hex.
+Integrators send `Authorization: Bearer <api-key>` on conversion routes. The Bluethroat CLI sends the user token issued by the Bluethroat GitHub App; a conversion created that way is visible only to that GitHub user or the operator API key. The console sends neither: `POST /v1/conversions` accepts a completed Turnstile token in the `CF-Turnstile-Response` header instead, and that conversion id then authorizes status, report, PDF, and delete. Conversions created with an API key still require it. `GET /v1/source` is public. Conversion ids look like `cnv_…`. Hashes are SHA-256 hex.
 
 OpenAPI is unauthenticated: `GET /openapi.json` (spec) and `GET /docs` (Swagger UI). The console is `GET /`.
 
