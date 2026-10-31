@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from bluepaper.models import ConversionRecord, QueueLease
+from bluepaper.models import ConversionRecord, ConversionStatus, QueueLease
 from bluepaper.storage.base import Stores
 
 log = logging.getLogger("bluepaper.storage")
@@ -80,6 +80,15 @@ class AzureTableStore:
         for entity in self._table.query_entities(f"Status eq '{status}'"):
             count += 1
         return count
+
+    def count_active(self, owner: str) -> int:
+        quoted = owner.replace("'", "''")
+        query = (
+            f"Owner eq '{quoted}' and "
+            f"(Status eq '{ConversionStatus.queued.value}' or "
+            f"Status eq '{ConversionStatus.running.value}')"
+        )
+        return sum(1 for _ in self._table.query_entities(query))
 
 
 class AzureQueue:

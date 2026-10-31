@@ -106,6 +106,31 @@ def test_github_token_creates_a_user_owned_conversion(
     assert calls == [TOKEN, SAME_USER_TOKEN]
 
 
+def test_concurrency_limit_is_per_github_user(
+    github_client: TestClient,
+    github_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github_settings.max_queue_depth = 10
+    _install(
+        monkeypatch,
+        {
+            TOKEN: _Response(200, _body()),
+            OTHER_USER_TOKEN: _Response(200, _body(8, "hubot")),
+        },
+    )
+
+    def post(token: str) -> int:
+        return github_client.post(
+            "/v1/conversions",
+            headers=_bearer(token),
+            files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+        ).status_code
+
+    assert [post(TOKEN) for _ in range(3)] == [202, 202, 429]
+    assert post(OTHER_USER_TOKEN) == 202
+
+
 def test_other_github_user_cannot_see_or_delete_conversion(
     github_client: TestClient,
     stores: Stores,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 from typing import Annotated, Any
 from urllib.parse import quote, unquote
 
@@ -95,6 +96,27 @@ async def gate_queue(
     request.state.guest = True
 
 
+def _owner_key(request: Request, settings: Settings) -> str | None:
+    """Whose conversions ``max_concurrent_jobs`` counts this upload against.
+
+    A GitHub user is one caller; a guest is one client address, stored as an
+    HMAC so the table holds no raw IP. The integrator API key is exempt: one
+    key fronts many people, and the queue-depth 503 bounds it instead.
+    """
+    principal = getattr(request.state, "principal", None)
+    if principal is not None:
+        if principal.kind == "github" and principal.github_user_id is not None:
+            return f"github:{principal.github_user_id}"
+        return None
+    ip = client_ip(request)
+    if not ip:
+        return None
+    digest = hmac.new(
+        settings.api_key.encode("utf-8"), ip.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    return f"guest:{digest[:32]}"
+
+
 def _visible_record(
     stores: Stores,
     conversion_id: str,
@@ -153,7 +175,7 @@ def source(settings: Annotated[Settings, Depends(get_settings)]) -> SourceRespon
         },
         status.HTTP_429_TOO_MANY_REQUESTS: {
             "model": ErrorResponse,
-            "description": "Concurrency limit",
+            "description": "Caller already has the maximum conversions in progress",
         },
         status.HTTP_403_FORBIDDEN: {
             "model": ErrorResponse,
@@ -208,8 +230,9 @@ async def create_conversion(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="queue saturated",
         )
-    if stores.table.count_by_status(ConversionStatus.running.value) >= (
-        settings.max_concurrent_jobs
+    owner = _owner_key(request, settings)
+    if owner is not None and (
+        stores.table.count_active(owner) >= settings.max_concurrent_jobs
     ):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -239,6 +262,7 @@ async def create_conversion(
         github_user_id=(
             getattr(getattr(request.state, "principal", None), "github_user_id", None)
         ),
+        owner=owner,
     )
     stores.table.create(record)
     stores.queue.enqueue(conversion_id)

@@ -42,6 +42,10 @@ class ConversionRecord:
     # Numeric owner for a conversion queued with a Bluethroat GitHub App token.
     # ``None`` preserves API-key-created and legacy records.
     github_user_id: int | None = None
+    # Who the per-caller limit counts this conversion against
+    # (``github:<id>`` or ``guest:<hmac>``). ``None`` for API-key and legacy
+    # records, which no caller limit counts.
+    owner: str | None = None
 
     def to_entity(self) -> dict[str, Any]:
         return {
@@ -60,6 +64,7 @@ class ConversionRecord:
             "Filename": self.filename,
             "Guest": self.guest,
             "GitHubUserId": self.github_user_id or 0,
+            "Owner": self.owner or "",
         }
 
     @classmethod
@@ -84,6 +89,7 @@ class ConversionRecord:
                 if int(entity.get("GitHubUserId") or 0) > 0
                 else None
             ),
+            owner=str(entity.get("Owner") or "") or None,
         )
 
 

@@ -56,6 +56,14 @@ class MemoryTableStore:
         with self._lock:
             return sum(1 for row in self._rows.values() if row.status.value == status)
 
+    def count_active(self, owner: str) -> int:
+        with self._lock:
+            return sum(
+                1
+                for row in self._rows.values()
+                if row.owner == owner and row.status in _ACTIVE
+            )
+
 
 class MemoryQueue:
     def __init__(self) -> None:
@@ -119,6 +127,9 @@ class _QueueItem:
         self.visible_at = visible_at
         self.dequeue_count = dequeue_count
         self.pop_receipt = pop_receipt
+
+
+_ACTIVE = (ConversionStatus.queued, ConversionStatus.running)
 
 
 def memory_stores() -> Stores:

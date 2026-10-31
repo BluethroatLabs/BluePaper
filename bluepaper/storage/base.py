@@ -26,6 +26,10 @@ class TableStore(Protocol):
 
     def count_by_status(self, status: str) -> int: ...
 
+    def count_active(self, owner: str) -> int:
+        """Conversions ``owner`` has queued or running."""
+        ...
+
 
 class JobQueue(Protocol):
     def enqueue(self, conversion_id: str) -> None: ...

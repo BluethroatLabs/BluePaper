@@ -231,8 +231,86 @@ def test_queue_saturated_is_503(
     assert response.status_code == 503
 
 
-def test_concurrency_limit_is_429(client: TestClient, stores: Stores) -> None:
-    for i in range(2):
+def _guest_client(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> TestClient:
+    from bluepaper.api import turnstile
+    from bluepaper.api.app import create_app
+
+    monkeypatch.setattr(
+        turnstile,
+        "_siteverify",
+        lambda secret, token, remote_ip: {
+            "success": True,
+            "action": "queue-conversion",
+            "hostname": "localhost",
+        },
+    )
+    settings.turnstile_secret = "test-secret"
+    settings.turnstile_hostnames = "localhost"
+    return TestClient(create_app(settings, stores))
+
+
+def _guest_post(client: TestClient, ip: str) -> int:
+    return client.post(
+        "/v1/conversions",
+        headers={"X-Forwarded-For": ip},
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+        data={"cf-turnstile-response": "token"},
+    ).status_code
+
+
+def test_concurrency_limit_is_per_guest_address(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings.max_queue_depth = 10
+    gated = _guest_client(settings, stores, monkeypatch)
+    assert _guest_post(gated, "198.51.100.1") == 202
+    assert _guest_post(gated, "198.51.100.1") == 202
+    assert _guest_post(gated, "198.51.100.1") == 429
+    # Another caller is not throttled by the first one's uploads.
+    assert _guest_post(gated, "198.51.100.2") == 202
+
+
+def test_guest_owner_does_not_store_the_raw_address(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gated = _guest_client(settings, stores, monkeypatch)
+    response = gated.post(
+        "/v1/conversions",
+        headers={"X-Forwarded-For": "198.51.100.7"},
+        files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
+        data={"cf-turnstile-response": "token"},
+    )
+    record = stores.table.get(response.json()["id"])
+    assert record is not None
+    assert record.owner is not None
+    assert record.owner.startswith("guest:")
+    assert "198.51.100.7" not in record.owner
+
+
+def test_finished_conversions_free_the_slot(
+    settings: Settings, stores: Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings.max_queue_depth = 10
+    gated = _guest_client(settings, stores, monkeypatch)
+    assert _guest_post(gated, "198.51.100.1") == 202
+    assert _guest_post(gated, "198.51.100.1") == 202
+    for status in (ConversionStatus.succeeded, ConversionStatus.failed):
+        lease = stores.queue.lease(60)
+        assert lease is not None
+        record = stores.table.get(lease.conversion_id)
+        assert record is not None
+        record.status = status
+        stores.table.update(record)
+        stores.queue.complete(lease)
+    assert _guest_post(gated, "198.51.100.1") == 202
+
+
+def test_other_callers_running_jobs_do_not_cause_429(
+    client: TestClient, stores: Stores
+) -> None:
+    for i in range(4):
         stores.table.create(
             ConversionRecord(
                 id=f"cnv_running_{i}",
@@ -240,6 +318,7 @@ def test_concurrency_limit_is_429(client: TestClient, stores: Stores) -> None:
                 sha256="a" * 64,
                 nbytes=1,
                 created_at=utc_now(),
+                owner=f"github:{100 + i}",
             )
         )
     response = client.post(
@@ -247,7 +326,7 @@ def test_concurrency_limit_is_429(client: TestClient, stores: Stores) -> None:
         headers=auth(),
         files={"file": ("doc.pdf", b"%PDF-1.4", "application/pdf")},
     )
-    assert response.status_code == 429
+    assert response.status_code == 202
 
 
 def test_source_is_public(client: TestClient) -> None:

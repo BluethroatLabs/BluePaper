@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Protocol
 
@@ -19,7 +21,9 @@ from bluepaper.models import (
     ConversionRecord,
     ConversionStatus,
     Hit,
+    QueueLease,
     Report,
+    ScanResult,
     utc_now,
 )
 from bluepaper.scan.scanner import ScanTimeout, scan_bytes
@@ -37,10 +41,13 @@ _CAPACITY_MARKERS = (
     "insufficient capacity",
 )
 _DISK_MARKERS = ("diskimagenotfound", "disk image")
+CONVERSION_TIMEOUT_ERROR = "conversion ran past its time budget"
 
 
 def public_conversion_error(exc: BaseException) -> str:
     """Stable, secret-free error for the conversion status row."""
+    if isinstance(exc, (TimeoutError, FutureTimeout)):
+        return CONVERSION_TIMEOUT_ERROR
     hay = f"{type(exc).__name__} {_azure_error_code(exc)} {exc}".lower()
     if any(marker in hay for marker in _DISK_MARKERS):
         return "conversion sandbox disk is not configured"
@@ -52,8 +59,9 @@ def public_conversion_error(exc: BaseException) -> str:
         "ServiceResponseError",
     }:
         return "conversion sandbox request failed"
-    text = str(exc).strip().splitlines()[0][:240]
-    return text or "conversion failed"
+    # An exception with no message (``TimeoutError()``) has no first line.
+    lines = str(exc).strip().splitlines()
+    return lines[0][:240] if lines else "conversion failed"
 
 
 def _azure_error_code(exc: BaseException) -> str:
@@ -117,14 +125,30 @@ def process_one(
     current.stage = "doc_to_pixels"
     stores.table.update(current)
 
+    try:
+        _run(settings, stores, isolation, current)
+    except Exception:
+        # A crash must not leave the row ``running`` with no worker on it. It
+        # would count against its owner's limit until the lease ran out.
+        _release_crashed(settings, stores, lease, current.id)
+        raise
+    stores.queue.complete(lease)
+    return True
+
+
+def _run(
+    settings: Settings,
+    stores: Stores,
+    isolation: IsolationLike,
+    current: ConversionRecord,
+) -> None:
     original = stores.blobs.get(original_blob_key(current.sha256))
     if original is None:
         current.status = ConversionStatus.failed
         current.error = "original blob missing"
         current.finished_at = utc_now()
         stores.table.update(current)
-        stores.queue.complete(lease)
-        return True
+        return
     source = original
 
     scan_hits: list[Hit] | None = None
@@ -132,48 +156,60 @@ def process_one(
     pdf_bytes: bytes | None = None
     pages: int | None = None
     conv_error: str | None = None
+    # Set once this job stops waiting. A conversion that ran past its budget
+    # may still report progress, and must not write ``running`` back.
+    abandoned = threading.Event()
 
-    def do_scan() -> None:
-        nonlocal scan_hits, scan_version
-        result = scan_bytes(source, timeout_seconds=settings.scan_timeout_seconds)
-        scan_hits = result.hits
-        scan_version = result.catalog_version
+    def on_progress(_err: object, text: str, _pct: object) -> None:
+        if not abandoned.is_set():
+            _update_stage(stores, current.id, text)
 
-    def do_convert() -> None:
-        nonlocal pdf_bytes, pages, conv_error
+    def do_scan() -> ScanResult:
+        return scan_bytes(source, timeout_seconds=settings.scan_timeout_seconds)
+
+    def do_convert() -> tuple[bytes, int] | None:
         latest = stores.table.get(current.id)
         if latest is not None and latest.status == ConversionStatus.cancelled:
-            return
-        pdf_bytes, pages = _convert_document(
-            isolation,
-            source,
-            current.filename,
-            current.ocr_lang,
-            lambda _err, text, _pct: _update_stage(stores, current.id, text),
+            return None
+        return _convert_document(
+            isolation, source, current.filename, current.ocr_lang, on_progress
         )
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    # Not a ``with`` block: leaving one waits for every thread, so a
+    # conversion stuck in the sandbox would hold this job (and the row) forever.
+    pool = ThreadPoolExecutor(max_workers=2)
+    try:
         scan_future = pool.submit(do_scan)
         conv_future = pool.submit(do_convert)
         try:
-            scan_future.result(timeout=settings.scan_timeout_seconds + 5)
+            scanned = scan_future.result(timeout=settings.scan_timeout_seconds + 5)
+            scan_hits = scanned.hits
+            scan_version = scanned.catalog_version
         except ScanTimeout:
-            log.exception("scan timed out conversion_id=%s", record.id)
-            scan_hits = None
+            log.exception("scan timed out conversion_id=%s", current.id)
         except Exception:
-            log.exception("scan failed conversion_id=%s", record.id)
-            scan_hits = None
+            log.exception("scan failed conversion_id=%s", current.id)
         try:
-            conv_future.result(timeout=settings.conversion_timeout_seconds)
+            converted = conv_future.result(timeout=settings.conversion_timeout_seconds)
+            if converted is not None:
+                pdf_bytes, pages = converted
+        except FutureTimeout:
+            log.warning(
+                "conversion ran past %.0fs conversion_id=%s",
+                settings.conversion_timeout_seconds,
+                current.id,
+            )
+            conv_error = CONVERSION_TIMEOUT_ERROR
         except Exception as exc:
-            log.exception("conversion failed conversion_id=%s", record.id)
+            log.exception("conversion failed conversion_id=%s", current.id)
             conv_error = public_conversion_error(exc)
+    finally:
+        abandoned.set()
+        pool.shutdown(wait=False, cancel_futures=True)
 
-    latest = stores.table.get(record.id)
-    if latest is not None and latest.status == ConversionStatus.cancelled:
-        stores.queue.complete(lease)
-        return True
-    assert latest is not None
+    latest = stores.table.get(current.id)
+    if latest is None or latest.status == ConversionStatus.cancelled:
+        return
     record = latest
 
     if scan_hits is not None:
@@ -202,8 +238,35 @@ def process_one(
         record.error = conv_error or "conversion failed"
     record.finished_at = utc_now()
     stores.table.update(record)
-    stores.queue.complete(lease)
-    return True
+
+
+def _release_crashed(
+    settings: Settings,
+    stores: Stores,
+    lease: QueueLease,
+    conversion_id: str,
+) -> None:
+    """Take a crashed job's row out of ``running``. Never raises over the crash.
+
+    The row goes back to ``queued`` for the redelivery, or to ``failed`` on the
+    last delivery the poison check would allow.
+    """
+    try:
+        record = stores.table.get(conversion_id)
+        if record is None or record.status != ConversionStatus.running:
+            return
+        record.stage = None
+        if lease.dequeue_count >= settings.max_dequeues:
+            record.status = ConversionStatus.failed
+            record.error = "conversion worker crashed"
+            record.finished_at = utc_now()
+            stores.table.update(record)
+            stores.queue.complete(lease)
+            return
+        record.status = ConversionStatus.queued
+        stores.table.update(record)
+    except Exception:
+        log.exception("could not release conversion_id=%s after a crash", conversion_id)
 
 
 def _update_stage(stores: Stores, conversion_id: str, text: str) -> None:

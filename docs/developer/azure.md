@@ -54,7 +54,7 @@ az role assignment create \
 | `BLUEPAPER_API_KEY` | Integrator bearer token. The console uses Turnstile instead. |
 | `BLUEPAPER_GITHUB_CLIENT_ID` / `BLUEPAPER_GITHUB_CLIENT_SECRET` | Bluethroat GitHub App credentials used to validate CLI user tokens. Configure both or neither. |
 | `BLUEPAPER_MAX_UPLOAD_BYTES` | Default 32 MiB |
-| `BLUEPAPER_MAX_CONCURRENT_JOBS` | 429 when running jobs hit this |
+| `BLUEPAPER_MAX_CONCURRENT_JOBS` | 429 when one GitHub user or guest address already has this many conversions queued or running (default 4). The API key is exempt. |
 | `BLUEPAPER_MAX_QUEUE_DEPTH` | 503 when the queue is full |
 | `BLUEPAPER_MAX_PIXEL_BYTES` | Cap on sandbox pixel output (default 512 MiB) |
 | `BLUEPAPER_SOURCE_URL` / `BLUEPAPER_SOURCE_COMMIT` | AGPL corresponding source (`GET /v1/source`). The API image build pins `SOURCE_COMMIT` so this is not empty in production. |

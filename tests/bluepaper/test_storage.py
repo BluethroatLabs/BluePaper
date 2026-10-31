@@ -89,6 +89,24 @@ def test_memory_count_by_status(stores: Stores) -> None:
     assert stores.table.count_by_status("failed") == 0
 
 
+def test_memory_count_active_is_per_owner(stores: Stores) -> None:
+    rows = [
+        ("cnv_a1", ConversionStatus.queued, "github:1"),
+        ("cnv_a2", ConversionStatus.running, "github:1"),
+        ("cnv_a3", ConversionStatus.succeeded, "github:1"),
+        ("cnv_a4", ConversionStatus.failed, "github:1"),
+        ("cnv_b1", ConversionStatus.running, "github:2"),
+        ("cnv_n1", ConversionStatus.running, None),
+    ]
+    for conversion_id, status, owner in rows:
+        record = _record(conversion_id, status)
+        record.owner = owner
+        stores.table.create(record)
+    assert stores.table.count_active("github:1") == 2
+    assert stores.table.count_active("github:2") == 1
+    assert stores.table.count_active("github:3") == 0
+
+
 def test_memory_queue_lease_hides_message(stores: Stores) -> None:
     stores.queue.enqueue("cnv_a")
     lease = stores.queue.lease(60)
@@ -172,6 +190,7 @@ class _FakeTable:
     def __init__(self, missing_exc: type[Exception]) -> None:
         self.rows: dict[str, dict] = {}
         self.missing_exc = missing_exc
+        self.queries: list[str] = []
 
     def create_entity(self, entity: dict) -> None:
         self.rows[str(entity["RowKey"])] = dict(entity)
@@ -190,9 +209,16 @@ class _FakeTable:
         del self.rows[row_key]
 
     def query_entities(self, query: str) -> object:
-        status = query.split("'")[1]
+        self.queries.append(query)
+        values = query.split("'")[1::2]
+        if query.startswith("Owner eq "):
+            owner, statuses = values[0].replace("''", "'"), set(values[1:])
+            for entity in self.rows.values():
+                if entity.get("Owner") == owner and entity["Status"] in statuses:
+                    yield entity
+            return
         for entity in self.rows.values():
-            if entity["Status"] == status:
+            if entity["Status"] == values[0]:
                 yield entity
 
 
@@ -288,6 +314,13 @@ def test_azure_table_roundtrip(missing_exc: type[Exception]) -> None:
     assert updated is not None
     assert updated.status == ConversionStatus.running
     assert store.count_by_status("running") == 1
+    assert store.count_active("github:9") == 0
+    record.owner = "github:9"
+    store.update(record)
+    assert store.count_active("github:9") == 1
+    assert table.queries[-1] == (
+        "Owner eq 'github:9' and (Status eq 'queued' or Status eq 'running')"
+    )
     store.delete("missing")
     store.delete("cnv_az")
     assert store.get("cnv_az") is None

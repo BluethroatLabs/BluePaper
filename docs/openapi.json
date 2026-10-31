@@ -100,7 +100,7 @@
             }
           },
           "429": {
-            "description": "Concurrency limit",
+            "description": "Caller already has the maximum conversions in progress",
             "content": {
               "application/json": {
                 "schema": {

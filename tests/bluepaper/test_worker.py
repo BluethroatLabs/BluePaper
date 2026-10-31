@@ -1,4 +1,5 @@
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from bluepaper.models import ConversionRecord, ConversionStatus, utc_now
 from bluepaper.scan.scanner import ScanTimeout
 from bluepaper.storage.base import Stores
 from bluepaper.worker.job import (
+    CONVERSION_TIMEOUT_ERROR,
     _update_stage,
     get_isolation,
     process_one,
@@ -364,6 +366,85 @@ def test_public_conversion_error_hides_azure_class_names() -> None:
     other = HttpResponseError("backend 500")
     assert public_conversion_error(other) == "conversion sandbox request failed"
     assert public_conversion_error(ValueError("pages overflow")) == "pages overflow"
+
+
+def test_public_conversion_error_handles_messageless_exceptions() -> None:
+    from concurrent.futures import TimeoutError as FutureTimeout
+
+    assert public_conversion_error(TimeoutError()) == CONVERSION_TIMEOUT_ERROR
+    assert public_conversion_error(FutureTimeout()) == CONVERSION_TIMEOUT_ERROR
+    assert public_conversion_error(RuntimeError()) == "conversion failed"
+
+
+def test_conversion_over_budget_fails_the_row_without_waiting(
+    client: TestClient, stores: Stores, settings: Settings
+) -> None:
+    release = threading.Event()
+
+    class HangingIsolation:
+        def convert(
+            self, document: Any, ocr_lang: str | None, progress_callback: Any = None
+        ) -> None:
+            document.mark_as_converting()
+            release.wait(timeout=10)
+            # A late progress report must not put the row back to running.
+            progress_callback(False, "Converting to PDF", 90)
+
+    settings.conversion_timeout_seconds = 0.2
+    conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
+    started = time.monotonic()
+    try:
+        assert process_one(settings, stores, HangingIsolation()) is True
+        assert time.monotonic() - started < 5
+        status = client.get(f"/v1/conversions/{conversion_id}", headers=auth()).json()
+        assert status["status"] == ConversionStatus.failed.value
+        assert status["error"] == CONVERSION_TIMEOUT_ERROR
+        assert stores.queue.lease(1) is None
+    finally:
+        release.set()
+    time.sleep(0.1)
+    record = stores.table.get(conversion_id)
+    assert record is not None
+    assert record.status == ConversionStatus.failed
+
+
+def test_crash_after_start_requeues_the_row(
+    client: TestClient,
+    stores: Stores,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("report store down")
+
+    monkeypatch.setattr("bluepaper.worker.job._build_report", boom)
+    conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
+    with pytest.raises(RuntimeError):
+        process_one(settings, stores)
+    record = stores.table.get(conversion_id)
+    assert record is not None
+    assert record.status == ConversionStatus.queued
+
+
+def test_crash_on_last_delivery_fails_the_row(
+    client: TestClient,
+    stores: Stores,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("report store down")
+
+    monkeypatch.setattr("bluepaper.worker.job._build_report", boom)
+    settings.max_dequeues = 1
+    conversion_id = _submit(client, b"%PDF-1.4\nplain text document\n")
+    with pytest.raises(RuntimeError):
+        process_one(settings, stores)
+    record = stores.table.get(conversion_id)
+    assert record is not None
+    assert record.status == ConversionStatus.failed
+    assert record.error == "conversion worker crashed"
+    assert stores.queue.lease(1) is None
 
 
 def test_isolation_exception_name_is_recorded(

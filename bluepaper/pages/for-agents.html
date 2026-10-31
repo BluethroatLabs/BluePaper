@@ -345,7 +345,7 @@ No obvious indicators were found; absence of patterns is not a malware verdict. 
                   <tr><td>409</td><td>Report or PDF not available</td><td>Poll status; failed jobs never have a PDF.</td></tr>
                   <tr><td>413</td><td>File too large</td><td>Tell the user.</td></tr>
                   <tr><td>415</td><td>Unsupported file type</td><td>Tell the user.</td></tr>
-                  <tr><td>429</td><td>Concurrency limit</td><td>Wait and retry with backoff.</td></tr>
+                  <tr><td>429</td><td>Caller already has the maximum conversions in progress</td><td>Wait for one to finish, then retry.</td></tr>
                   <tr><td>503</td><td>Queue, service, or authorization check unavailable</td><td>Wait and retry with backoff.</td></tr>
                 </tbody>
               </table>
