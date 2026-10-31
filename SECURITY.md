@@ -1,62 +1,17 @@
-# Security Policy
+# BluePaper Security Policy
 
-The Dangerzone team welcomes feedback from security researchers and the general
-public to help improve our security. If you believe you have discovered a
-security issue, we want to hear from you. This policy outlines steps for
-reporting vulnerabilities to us, what we expect, what you can expect from us.
+BluePaper is Bluethroat Labs' network service for converting untrusted documents into PDFs rebuilt from pixels. This policy covers the BluePaper service, its API and browser console, the Bluethroat CLI integration, and BluePaper-specific code and deployment configuration in this repository. The bundled Dangerzone desktop application has its own [security policy](https://github.com/freedomofpress/dangerzone/security/policy).
 
-## Reporting a vulnerability
+## Report a vulnerability privately
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+Email **[saxenism@bluethroatlabs.com](mailto:saxenism@bluethroatlabs.com)** with the subject `BluePaper security report`. Do not post vulnerability details or proof-of-concept code in a public issue, discussion, or pull request. We will acknowledge the report and coordinate investigation, remediation, and disclosure with you.
 
-Our preferred communication channels are:
-* **Signal:** Not yet publicly available. Please contact us via email and we
-  will provide you with Signal contact details for secure communication.
-* **Email:** support@dangerzone.rocks.
+Please include the affected URL, branch, commit or release; the security impact; concise reproduction steps; and any non-sensitive logs or proof of concept. Tell us whether you tested the deployed service or only local source. Remove credentials, personal documents, and other private data from attachments.
 
-A member of our team should acknowledge your report **within 2 weeks**. If we
-fail to do so, please use a different communication channel.
+## Testing boundaries
 
-Once we have acknowledged the report, we ask for **at least 6 weeks** to
-investigate, implement, and release a fix before any public disclosure, unless
-we mutually agree on a different timeline. During that time we will keep you
-updated as we make progress, and we will be available for any question you may
-have. If we determine that a coordinated public disclosure is necessary before a
-fix is ready, we will work with you on messaging and timing.
+Use your own accounts and disposable documents. Local reproductions and low-impact checks against the service are welcome. **Do not deliberately exhaust the shared queue, workers, storage, third-party API quotas, or other users' availability.** Coordinate with us before load testing, testing denial of service, or running a proof of concept that may affect other users. Do not access or retain another user's data.
 
-## What's in scope
+## Supported versions
 
-Dangerzone has two main security goals:
-* Malicious documents should not infect the user's device, or communicate with
-  other machines.
-* All metadata should be destroyed after the conversion process.
-
-Any vulnerability that undermines these two goals **is considered critical** and
-we advise you to report it via Signal.
-
-### About CVEs in our container image
-
-Dangerzone uses several third-party tools to sanitize documents, such as
-[LibreOffice](https://www.libreoffice.org/) and [PyMuPDF](https://pymupdf.io/).
-Because these tools have a large attack surface, Dangerzone operates under the
-assumption that a 0-day vulnerability probably exists for them. For this reason,
-Dangerzone's primary defense is to isolate these tools within unprivileged,
-networkless containers using [gVisor](https://gvisor.dev/). Read more in
-[our blog](https://dangerzone.rocks/news/2024-09-23-gvisor/).
-
-Our second line of defense is to make sure our container image is not affected
-by known vulnerabilities, i.e., CVEs. We have nightly security scans for
-Critical CVEs, and biweekly security scans for High CVEs. You can see the
-results of our security scans in https://cves.dangerzone.rocks. We aim for a 4
-week update cadence of our container image, or earlier, if a security finding
-necessitates it.
-
-If you have encountered a CVE in our container image that violates the above
-policy, please report it to us.
-
-## Security Advisories
-
-When necessary, we have [issued CVEs](https://github.com/freedomofpress/dangerzone/security/advisories)
-for Dangerzone and [security advisories](https://github.com/freedomofpress/dangerzone/tree/main/docs/advisories)
-to our users. We are committed to transparency and will continue to issue
-CVEs and security advisories whenever a finding warrants it.
+BluePaper does not publish versioned releases yet. Report issues in the currently deployed service, the active development branches, or the default branch, and include the exact revision when possible. A source-only issue may or may not affect the deployed service; we will check both during triage.
