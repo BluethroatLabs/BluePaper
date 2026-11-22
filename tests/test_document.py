@@ -50,8 +50,12 @@ def test_output_file_unwriteable_dir(sample_pdf: str, tmp_path: Path) -> None:
     # make parent dir unwriteable
     sample_pdf_safe = str(tmp_path / "document-safe.pdf")
     os.chmod(tmp_path, 0o400)
-    with pytest.raises(errors.UnwriteableOutputDirException):
-        Document(sample_pdf, sample_pdf_safe)
+    try:
+        with pytest.raises(errors.UnwriteableOutputDirException):
+            Document(sample_pdf, sample_pdf_safe)
+    finally:
+        # Let pytest delete this directory when it prunes old runs.
+        os.chmod(tmp_path, 0o700)
 
 
 def test_output(tmp_path: Path) -> None:
@@ -106,8 +110,12 @@ def test_archive_unwriteable_dir(tmp_path: Path) -> None:
     # make archive directory unreadable
     os.chmod(tmp_path, 0o400)
 
-    with pytest.raises(errors.UnwriteableArchiveDirException):
-        d.validate_default_archive_dir()
+    try:
+        with pytest.raises(errors.UnwriteableArchiveDirException):
+            d.validate_default_archive_dir()
+    finally:
+        # Let pytest delete this directory when it prunes old runs.
+        os.chmod(tmp_path, 0o700)
 
 
 def test_archive(mocker: MagicMock, tmp_path: Path) -> None:
