@@ -31,16 +31,70 @@ FAILED_NO_HITS_CAVEAT = (
 )
 
 
-def caveat_for(*, succeeded: bool, hit_count: int) -> str:
+# Outcomes of comparing an upload's declared extension against its magic
+# bytes (:mod:`bluepaper.filetype`). ``UNRECOGNISED`` is the "we cannot tell"
+# case and is never reported as a mismatch — a signature table that does not
+# know a format must stay quiet rather than cry wolf.
+TYPE_MATCH = "match"
+TYPE_MISMATCH = "mismatch"
+TYPE_UNRECOGNISED = "unrecognised"
+
+#: Prose for each sniffable family, for the mismatch caveat.
+FAMILY_LABELS = {
+    "pdf": "a PDF",
+    "postscript": "PostScript/EPS",
+    "zip": "a ZIP container (OOXML, ODF, or EPUB)",
+    "ole2": "a legacy OLE2 Office file",
+    "rtf": "an RTF document",
+    "png": "a PNG image",
+    "jpeg": "a JPEG image",
+    "gif": "a GIF image",
+    "bmp": "a BMP image",
+    "tiff": "a TIFF image",
+    "netpbm": "a Netpbm image",
+    "svg": "an XML or SVG document",
+}
+# A mismatch is reported, never refused: callers send BluePaper documents
+# precisely because they do not trust them, and the sandbox — not the
+# extension — is what makes that safe.
+MISMATCH_CAVEAT_TEMPLATE = (
+    "The declared type does not match the bytes: sent as {declared_ext} "
+    "but the content is {detected}. The file was still rebuilt from pixels; "
+    "BluePaper never trusts the extension."
+)
+
+
+def mismatch_caveat_for(
+    status: str, declared_extension: str, detected_family: str | None
+) -> str | None:
+    """The extra caveat sentence for a declared-vs-actual type mismatch.
+
+    ``None`` for every other outcome, so a caller can append it
+    unconditionally.
+    """
+    if status != TYPE_MISMATCH or not detected_family:
+        return None
+    detected = FAMILY_LABELS.get(detected_family, detected_family)
+    return MISMATCH_CAVEAT_TEMPLATE.format(
+        declared_ext=declared_extension or "an unnamed file", detected=detected
+    )
+
+
+def caveat_for(
+    *, succeeded: bool, hit_count: int, mismatch: str | None = None
+) -> str:
     """Caveat for a finished scan.
 
     A safe PDF exists only when conversion succeeded. Every other outcome
     leads with that fact and does not claim a pixel rebuild or that
-    indicators were stripped.
+    indicators were stripped. ``mismatch`` appends the declared-vs-actual
+    type sentence when there is one.
     """
     if succeeded:
-        return HITS_CAVEAT if hit_count else ZERO_HITS_CAVEAT
-    return FAILED_HITS_CAVEAT if hit_count else FAILED_NO_HITS_CAVEAT
+        base = HITS_CAVEAT if hit_count else ZERO_HITS_CAVEAT
+    else:
+        base = FAILED_HITS_CAVEAT if hit_count else FAILED_NO_HITS_CAVEAT
+    return f"{base} {mismatch}" if mismatch else base
 
 
 SUPPORTED_EXTENSIONS = frozenset(

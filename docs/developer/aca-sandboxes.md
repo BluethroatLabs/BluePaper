@@ -45,7 +45,9 @@ aca sandboxgroup disk create \
 
 Or Python: `SandboxGroupClient.create_disk_image("<oci>", name="dangerzone-doc-to-pixels")`.
 
-`just disk` does the same through the Azure CLI. It reuses that image when it already exists and sets `BLUEPAPER_SANDBOX_DISK_ID` on the worker.
+`just disk` does the same through the Azure CLI and sets `BLUEPAPER_SANDBOX_DISK_ID` on the worker. It resolves the image tag to its digest, bakes from that digest, and names the disk `dangerzone-doc-to-pixels-<first 12 hex digits>`. A disk is reused only while upstream has not published a new image, so the next `just disk` or `just deploy` after an upstream release picks up the converter's security updates.
+
+A disk baked by hand, as above, keeps its packages until it is baked again. Run `just disk` after each upstream release instead. Older disks are listed but not deleted: a conversion may still be running on one. Delete them once the worker has moved to the new disk.
 
 ## Live spike
 
