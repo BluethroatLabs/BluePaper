@@ -10,12 +10,14 @@ from pathlib import Path
 from typing import Protocol, Self
 
 from bluepaper.config import (
+    TYPE_MISMATCH,
     Settings,
     caveat_for,
     original_blob_key,
     pdf_blob_key,
     report_blob_key,
 )
+from bluepaper.filetype import check_declared_type
 from bluepaper.isolation.stop import StopSignal
 from bluepaper.models import (
     ConversionOutcome,
@@ -25,6 +27,7 @@ from bluepaper.models import (
     QueueLease,
     Report,
     ScanResult,
+    TypeCheck,
     utc_now,
 )
 from bluepaper.scan.scanner import ScanTimeout, scan_bytes
@@ -203,6 +206,18 @@ def _run(
         return
     source = original
 
+    # Magic-byte check on the pinned original. Cheap and parser-free, so it
+    # runs inline rather than in the pool, and it cannot fail the job: a
+    # mismatch is reported, never refused (see :mod:`bluepaper.filetype`).
+    type_check = check_declared_type(source, current.filename)
+    if type_check.status == TYPE_MISMATCH:
+        log.warning(
+            "declared type mismatch conversion_id=%s declared=%s detected=%s",
+            current.id,
+            type_check.declared_extension,
+            type_check.detected_family,
+        )
+
     scan_hits: list[Hit] | None = None
     scan_version = "1.0.0"
     pdf_bytes: bytes | None = None
@@ -273,6 +288,7 @@ def _run(
             pdf_bytes,
             pages,
             conv_error,
+            type_check,
         )
         stores.blobs.put(
             report_blob_key(record.id),
@@ -369,7 +385,9 @@ def _build_report(
     pdf_bytes: bytes | None,
     pages: int | None,
     conv_error: str | None,
+    type_check: TypeCheck | None = None,
 ) -> Report:
+    mismatch = type_check.caveat if type_check else None
     if pdf_bytes is not None and conv_error is None:
         conversion = ConversionOutcome(
             status="succeeded",
@@ -380,7 +398,7 @@ def _build_report(
         # Non-empty hits mean the byte scan matched. They do not prove an
         # active construct was present.
         justified = len(hits) > 0
-        caveat = caveat_for(succeeded=True, hit_count=len(hits))
+        caveat = caveat_for(succeeded=True, hit_count=len(hits), mismatch=mismatch)
     else:
         conversion = ConversionOutcome(
             status="failed",
@@ -389,7 +407,7 @@ def _build_report(
             output_bytes=None,
         )
         justified = False
-        caveat = caveat_for(succeeded=False, hit_count=len(hits))
+        caveat = caveat_for(succeeded=False, hit_count=len(hits), mismatch=mismatch)
     return Report(
         conversion_id=record.id,
         sha256=record.sha256,
@@ -398,4 +416,5 @@ def _build_report(
         caveat=caveat,
         hits=hits,
         conversion=conversion,
+        type_check=type_check,
     )
