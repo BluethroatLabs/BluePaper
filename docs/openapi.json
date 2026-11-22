@@ -706,6 +706,16 @@
                 "type": "null"
               }
             ]
+          },
+          "type_check": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypeCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -815,6 +825,47 @@
           "created_at"
         ],
         "title": "StatusResponse"
+      },
+      "TypeCheck": {
+        "properties": {
+          "declared_extension": {
+            "type": "string",
+            "title": "Declared Extension"
+          },
+          "declared_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Family"
+          },
+          "detected_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Family"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "unrecognised"
+          }
+        },
+        "type": "object",
+        "required": [
+          "declared_extension"
+        ],
+        "title": "TypeCheck",
+        "description": "What the extension claimed versus what the magic bytes say.\n\n``status`` is one of :data:`~bluepaper.config.TYPE_MATCH`,\n``TYPE_MISMATCH``, or ``TYPE_UNRECOGNISED``. Families are the stable ids\nfrom :data:`~bluepaper.config.FAMILY_LABELS`; ``None`` means the prefix\nmatched no known signature, which is not a mismatch."
       },
       "ValidationError": {
         "properties": {

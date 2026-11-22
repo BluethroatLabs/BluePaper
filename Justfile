@@ -10,7 +10,7 @@
 #   just use          # select the subscription
 #   just deploy       # build, push, bicep, sandbox disk, worker role
 #   just openapi      # write docs/openapi.json
-#   just disk         # reuse or bake the Dangerzone disk and set it on the worker
+#   just disk         # bake the Dangerzone disk for the current upstream image and set it on the worker
 #   just smoke        # GET /healthz and /openapi.json
 
 set dotenv-load := true
@@ -197,7 +197,8 @@ worker-role:
       --role "Container Apps SandboxGroup Data Owner" \
       --scope "$sandbox_id" || true
 
-# Reuse or bake the Dangerzone disk and set BLUEPAPER_SANDBOX_DISK_ID on the worker.
+# Bake the Dangerzone disk for the upstream image's current digest (reused only
+# while that digest is unchanged) and set BLUEPAPER_SANDBOX_DISK_ID on the worker.
 disk:
     #!/usr/bin/env bash
     set -euo pipefail

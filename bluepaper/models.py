@@ -7,7 +7,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from bluepaper.config import CATALOG_VERSION, SCHEMA_VERSION, caveat_for
+from bluepaper.config import (
+    CATALOG_VERSION,
+    SCHEMA_VERSION,
+    TYPE_UNRECOGNISED,
+    caveat_for,
+    mismatch_caveat_for,
+)
 
 
 def utc_now() -> str:
@@ -125,6 +131,27 @@ class ConversionOutcome(BaseModel):
     output_bytes: int | None = None
 
 
+class TypeCheck(BaseModel):
+    """What the extension claimed versus what the magic bytes say.
+
+    ``status`` is one of :data:`~bluepaper.config.TYPE_MATCH`,
+    ``TYPE_MISMATCH``, or ``TYPE_UNRECOGNISED``. Families are the stable ids
+    from :data:`~bluepaper.config.FAMILY_LABELS`; ``None`` means the prefix
+    matched no known signature, which is not a mismatch.
+    """
+
+    declared_extension: str
+    declared_family: str | None = None
+    detected_family: str | None = None
+    status: str = TYPE_UNRECOGNISED
+
+    @property
+    def caveat(self) -> str | None:
+        return mismatch_caveat_for(
+            self.status, self.declared_extension, self.detected_family
+        )
+
+
 class Report(BaseModel):
     schema_version: str = SCHEMA_VERSION
     conversion_id: str
@@ -134,6 +161,8 @@ class Report(BaseModel):
     caveat: str | None = None
     hits: list[Hit] = Field(default_factory=list)
     conversion: ConversionOutcome | None = None
+    # Absent on reports written before the check existed.
+    type_check: TypeCheck | None = None
 
 
 def normalize_failed_report(payload: bytes) -> bytes:
@@ -148,7 +177,13 @@ def normalize_failed_report(payload: bytes) -> bytes:
     except ValidationError:
         return payload
     report.conversion_justified = False
-    report.caveat = caveat_for(succeeded=False, hit_count=len(report.hits))
+    # A type mismatch is a fact about the original bytes, so it survives a
+    # conversion that did not succeed.
+    report.caveat = caveat_for(
+        succeeded=False,
+        hit_count=len(report.hits),
+        mismatch=report.type_check.caveat if report.type_check else None,
+    )
     if report.conversion is not None:
         if report.conversion.status == "succeeded":
             report.conversion.status = "failed"

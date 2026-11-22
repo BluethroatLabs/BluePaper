@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import Self
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -42,7 +45,7 @@ def _body(
 
 
 @pytest.fixture(autouse=True)
-def _fresh_cache():
+def _fresh_cache() -> Iterator[None]:
     clear_identity_cache()
     yield
     clear_identity_cache()
@@ -265,11 +268,11 @@ def test_token_check_uses_hardened_transport(
         def __init__(self, **kwargs: object) -> None:
             captured["init"] = kwargs
 
-        def __enter__(self):
+        def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, *_args: object) -> bool:
-            return False
+        def __exit__(self, *_args: object) -> None:
+            return None
 
         def post(self, url: str, **kwargs: object) -> _Response:
             captured["url"] = url

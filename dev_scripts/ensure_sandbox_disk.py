@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Reuse or bake a sandbox disk image and print its id.
+"""Bake a sandbox disk image for the current upstream image and print its id.
+
+The image tag is resolved to its digest first. The disk is named after that
+digest and baked from it, so a disk is reused only while upstream has not
+published a new image. A reused disk would otherwise keep the packages it was
+first baked with, and miss every later security update of the converter.
 
 Uses the Azure CLI for a data-plane token. The ``aca`` CLI is not required.
 """
@@ -9,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import subprocess
 import sys
 import time
@@ -22,6 +28,111 @@ API_VERSION = "2026-02-01-preview"
 TOKEN_RESOURCE = "https://dynamicsessions.io"
 READY = {"ready", "succeeded"}
 FAILED = {"failed"}
+
+MANIFEST_TYPES = (
+    "application/vnd.oci.image.index.v1+json, "
+    "application/vnd.docker.distribution.manifest.list.v2+json, "
+    "application/vnd.oci.image.manifest.v1+json, "
+    "application/vnd.docker.distribution.manifest.v2+json"
+)
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+_CHALLENGE_PARAM = re.compile(r'(\w+)="([^"]*)"')
+
+
+def split_image(image: str) -> tuple[str, str, str]:
+    """Split ``registry/repository[:tag][@digest]`` into its three parts.
+
+    The last part is the digest when the reference has one, else the tag.
+    """
+    name, _, digest = image.partition("@")
+    registry, slash, repository = name.partition("/")
+    if not slash or not repository or not ("." in registry or ":" in registry):
+        raise ValueError(f"image must name its registry: {image}")
+    tag = "latest"
+    if ":" in repository:
+        repository, _, tag = repository.rpartition(":")
+    if digest:
+        if not _DIGEST.fullmatch(digest):
+            raise ValueError(f"unsupported image digest: {image}")
+        return registry, repository, digest
+    if not repository or not tag:
+        raise ValueError(f"malformed image reference: {image}")
+    return registry, repository, tag
+
+
+def _open(request: urllib.request.Request) -> tuple[dict[str, str], bytes]:
+    """Lower-cased response headers and body. Tests replace this."""
+    with urllib.request.urlopen(request, timeout=60) as response:
+        headers = {key.lower(): value for key, value in response.headers.items()}
+        return headers, response.read()
+
+
+def _pull_token(challenge: str) -> str:
+    """Anonymous pull token for a ``WWW-Authenticate: Bearer`` challenge."""
+    scheme, _, rest = challenge.partition(" ")
+    params = dict(_CHALLENGE_PARAM.findall(rest))
+    realm = params.pop("realm", "")
+    if scheme.lower() != "bearer" or not realm.startswith("https://"):
+        raise RuntimeError("registry asked for an unsupported login")
+    url = f"{realm}?{urllib.parse.urlencode(params)}"
+    _headers, body = _open(urllib.request.Request(url))
+    data = json.loads(body.decode("utf-8"))
+    token = data.get("token") or data.get("access_token")
+    if not token:
+        raise RuntimeError("registry did not return a pull token")
+    return str(token)
+
+
+def resolve_digest(image: str) -> str:
+    """The ``sha256:…`` digest that ``image`` points at right now."""
+    registry, repository, reference = split_image(image)
+    if _DIGEST.fullmatch(reference):
+        return reference
+    url = f"https://{registry}/v2/{repository}/manifests/{reference}"
+
+    def head(token: str | None) -> dict[str, str]:
+        request = urllib.request.Request(url, method="HEAD")
+        request.add_header("Accept", MANIFEST_TYPES)
+        if token:
+            request.add_header("Authorization", f"Bearer {token}")
+        headers, _body = _open(request)
+        return headers
+
+    try:
+        headers = head(None)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 401:
+            raise RuntimeError(f"could not resolve {image}: HTTP {exc.code}") from exc
+        token = _pull_token(exc.headers.get("WWW-Authenticate", ""))
+        try:
+            headers = head(token)
+        except urllib.error.HTTPError as denied:
+            raise RuntimeError(
+                f"could not resolve {image}: HTTP {denied.code}"
+            ) from denied
+    digest = headers.get("docker-content-digest", "")
+    if not _DIGEST.fullmatch(digest):
+        raise RuntimeError(f"registry returned no digest for {image}")
+    return digest
+
+
+def pinned_image(image: str, digest: str) -> str:
+    registry, repository, _reference = split_image(image)
+    return f"{registry}/{repository}@{digest}"
+
+
+def pinned_disk_name(name: str, digest: str) -> str:
+    return f"{name}-{digest.removeprefix('sha256:')[:12]}"
+
+
+def superseded_disks(items: list[dict], name: str, current: str) -> list[str]:
+    """Names of disks baked under ``name`` for an older image."""
+    names = {disk_name(item) for item in items}
+    return sorted(
+        found
+        for found in names
+        if found != current and (found == name or found.startswith(f"{name}-"))
+    )
 
 
 def disk_name(item: dict) -> str:
@@ -141,7 +252,7 @@ def wait_until_ready(plane: DataPlane, disk_id: str, timeout: float) -> None:
         time.sleep(5)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--subscription", required=True)
     parser.add_argument("--resource-group", required=True)
@@ -150,7 +261,7 @@ def main() -> None:
     parser.add_argument("--name", required=True)
     parser.add_argument("--image", required=True)
     parser.add_argument("--timeout", type=float, default=600)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     plane = DataPlane(
         f"https://management.{args.region}.azuredevcompute.io",
         (
@@ -159,12 +270,22 @@ def main() -> None:
             f"/sandboxGroups/{args.sandbox_group}"
         ),
     )
-    existing = find_disk(plane.list_disks(), args.name)
+    digest = resolve_digest(args.image)
+    name = pinned_disk_name(args.name, digest)
+    image = pinned_image(args.image, digest)
+    disks = plane.list_disks()
+    existing = find_disk(disks, name)
     if existing is None:
-        print(f"baking {args.name} from {args.image}", file=sys.stderr)
-        existing = plane.create_disk(args.name, args.image)
+        print(f"baking {name} from {image}", file=sys.stderr)
+        existing = plane.create_disk(name, image)
     else:
-        print(f"reusing {args.name}", file=sys.stderr)
+        print(f"reusing {name} ({args.image} has not changed)", file=sys.stderr)
+    for old in superseded_disks(disks, args.name, name):
+        print(
+            f"disk {old} was baked from an older image and is no longer used; "
+            "delete it once no conversion is running on it",
+            file=sys.stderr,
+        )
     disk_id = str(existing["id"])
     if disk_state(existing).lower() not in READY:
         wait_until_ready(plane, disk_id, args.timeout)
