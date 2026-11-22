@@ -80,9 +80,7 @@ def mismatch_caveat_for(
     )
 
 
-def caveat_for(
-    *, succeeded: bool, hit_count: int, mismatch: str | None = None
-) -> str:
+def caveat_for(*, succeeded: bool, hit_count: int, mismatch: str | None = None) -> str:
     """Caveat for a finished scan.
 
     A safe PDF exists only when conversion succeeded. Every other outcome
