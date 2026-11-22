@@ -40,7 +40,8 @@ Grant the worker **Container Apps SandboxGroup Data Owner** (sandboxes have no i
 ```bash
 WORKER_ID=$(az containerapp show -g "$RG" -n bluepaper-worker --query identity.principalId -o tsv)
 az role assignment create \
-  --assignee "$WORKER_ID" \
+  --assignee-object-id "$WORKER_ID" \
+  --assignee-principal-type ServicePrincipal \
   --role "Container Apps SandboxGroup Data Owner" \
   --scope "$SANDBOX_GROUP_ID"
 ```
