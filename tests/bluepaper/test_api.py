@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -569,7 +570,7 @@ def test_frontend_assets_are_public(client: TestClient) -> None:
     assert b"api-key" not in js.content
 
 
-def test_legal_pages_and_brand_assets_are_served(client) -> None:
+def test_legal_pages_and_brand_assets_are_served(client: TestClient) -> None:
     for path, title in (
         ("/privacy", "Privacy"),
         ("/terms", "Terms"),
@@ -812,7 +813,7 @@ def test_streamed_body_over_the_limit_is_cut_off(client: TestClient) -> None:
         "Content-Type: application/pdf\r\n\r\n"
     ).encode()
 
-    def chunks():  # no Content-Length: sent chunked
+    def chunks() -> Iterator[bytes]:  # no Content-Length: sent chunked
         yield head
         for _ in range(40):
             yield b"\0" * (64 * 1024)

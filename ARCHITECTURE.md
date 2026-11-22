@@ -256,6 +256,7 @@ Available when conversion `succeeded`, or when conversion `failed` but the regex
 | `conversion_justified` | `true` only when conversion succeeded and `hits.length > 0`. Not proof of an active construct |
 | `caveat` | On success with hits: raw byte indicators are not proof of an active construct. On success with no hits: zero indicators is not “clean”. On any non-success: leads with “No safe PDF was produced” |
 | `conversion` | Status, pages, OCR language, output bytes. `output_bytes` is set only when status is `succeeded` |
+| `type_check` | The filename's extension compared with the upload's leading magic bytes. `status` is `match`, `mismatch`, or `unrecognised` (the bytes or the extension are not in the signature table). A mismatch adds one sentence to `caveat` and never refuses a conversion. `null` on reports written before the check existed |
 
 ```json
 {
