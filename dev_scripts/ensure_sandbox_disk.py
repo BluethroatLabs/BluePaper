@@ -188,7 +188,13 @@ class DataPlane:
             ).strip()
         return self._token
 
-    def request(self, method: str, path: str, body: dict | None = None) -> object:
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: dict | None = None,
+        timeout: float = 60,
+    ) -> object:
         url = f"{self.endpoint}{path}"
         separator = "&" if "?" in url else "?"
         url = f"{url}{separator}api-version={API_VERSION}"
@@ -198,7 +204,7 @@ class DataPlane:
         if payload is not None:
             request.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")
@@ -219,11 +225,15 @@ class DataPlane:
                 path = ""
         return items
 
-    def create_disk(self, name: str, image: str) -> dict:
+    def create_disk(self, name: str, image: str, timeout: float = 600) -> dict:
+        """Bake a disk. The service answers only once the bake has finished,
+        which took 75 seconds for the Dangerzone image, so this call needs
+        the bake's time budget and not that of an ordinary request."""
         created = self.request(
             "PUT",
             f"{self.group_path}/diskimages",
             {"image": {"base": image}, "labels": {"name": name}},
+            timeout=timeout,
         )
         if not isinstance(created, dict) or not created.get("id"):
             raise RuntimeError("disk create did not return an id")
@@ -244,12 +254,32 @@ def wait_until_ready(plane: DataPlane, disk_id: str, timeout: float) -> None:
         if state in READY:
             return
         if state in FAILED:
-            message = (item.get("status") or {}).get("message") or "disk build failed"
-            raise RuntimeError(str(message))
+            status = item.get("status") or {}
+            message = status.get("errorMessage") or status.get("message")
+            raise RuntimeError(str(message or "disk build failed"))
         if time.monotonic() >= deadline:
             raise RuntimeError(f"disk {disk_id} was not ready within {int(timeout)}s")
         print(f"disk {disk_id} is {state or 'pending'}", file=sys.stderr)
         time.sleep(5)
+
+
+def bake(plane: DataPlane, name: str, image: str, timeout: float) -> dict:
+    """Bake ``image`` into a disk called ``name`` and return the disk.
+
+    When the create call outlasts ``timeout``, the bake may still finish on
+    the service. Sending the call again could bake the same image twice, so
+    this looks once for the disk before giving up.
+    """
+    try:
+        return plane.create_disk(name, image, timeout=timeout)
+    except TimeoutError:
+        found = find_disk(plane.list_disks(), name)
+        if found is not None:
+            return found
+        raise RuntimeError(
+            f"the sandbox service did not finish baking {name} within "
+            f"{int(timeout)}s; run this again, or pass a longer --timeout"
+        ) from None
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -277,13 +307,13 @@ def main(argv: list[str] | None = None) -> None:
     existing = find_disk(disks, name)
     if existing is None:
         print(f"baking {name} from {image}", file=sys.stderr)
-        existing = plane.create_disk(name, image)
+        existing = bake(plane, name, image, args.timeout)
     else:
         print(f"reusing {name} ({args.image} has not changed)", file=sys.stderr)
     for old in superseded_disks(disks, args.name, name):
         print(
-            f"disk {old} was baked from an older image and is no longer used; "
-            "delete it once no conversion is running on it",
+            f"disk {old} was baked from an older image; delete it once the "
+            "worker uses the new disk and no conversion is running on the old one",
             file=sys.stderr,
         )
     disk_id = str(existing["id"])

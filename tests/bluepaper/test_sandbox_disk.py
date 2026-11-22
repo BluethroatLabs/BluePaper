@@ -113,6 +113,8 @@ class FakePlane:
 
     disks: ClassVar[list[dict]] = []
     created: ClassVar[list[tuple[str, str]]] = []
+    create_times_out: ClassVar[bool] = False
+    registers_anyway: ClassVar[bool] = False
 
     def __init__(self, _endpoint: str, _group_path: str) -> None:
         pass
@@ -120,8 +122,12 @@ class FakePlane:
     def list_disks(self) -> list[dict]:
         return list(self.disks)
 
-    def create_disk(self, name: str, image: str) -> dict:
+    def create_disk(self, name: str, image: str, timeout: float = 600) -> dict:
         self.created.append((name, image))
+        if self.create_times_out:
+            if self.registers_anyway:
+                self.disks.append(_ready(name))
+            raise TimeoutError("The read operation timed out")
         return {
             "id": f"id-{name}",
             "labels": {"name": name},
@@ -133,6 +139,8 @@ class FakePlane:
 def plane(monkeypatch: pytest.MonkeyPatch) -> type[FakePlane]:
     FakePlane.disks = []
     FakePlane.created = []
+    FakePlane.create_times_out = False
+    FakePlane.registers_anyway = False
     monkeypatch.setattr(disk, "DataPlane", FakePlane)
     return FakePlane
 
@@ -181,3 +189,50 @@ def test_main_bakes_again_when_upstream_publishes(
     assert "disk dangerzone-doc-to-pixels was baked" in captured.err
     assert "disk dangerzone-doc-to-pixels-aaaaaaaaaaaa was baked" in captured.err
     assert "unrelated" not in captured.err
+
+
+def test_main_finds_the_disk_when_the_create_call_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+    plane: type[FakePlane],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(disk, "resolve_digest", lambda _image: NEW)
+    plane.create_times_out = True
+    plane.registers_anyway = True
+
+    disk.main(ARGS)
+
+    assert len(plane.created) == 1
+    assert capsys.readouterr().out.strip() == "id-dangerzone-doc-to-pixels-bbbbbbbbbbbb"
+
+
+def test_main_reports_a_bake_that_never_finished(
+    monkeypatch: pytest.MonkeyPatch, plane: type[FakePlane]
+) -> None:
+    monkeypatch.setattr(disk, "resolve_digest", lambda _image: NEW)
+    plane.create_times_out = True
+
+    with pytest.raises(RuntimeError, match="did not finish baking"):
+        disk.main(ARGS)
+
+    assert len(plane.created) == 1
+
+
+def test_create_disk_gets_the_bake_time_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[float] = []
+
+    def fake_request(
+        self: disk.DataPlane,
+        method: str,
+        path: str,
+        body: dict | None = None,
+        timeout: float = 60,
+    ) -> object:
+        seen.append(timeout)
+        return {"id": "disk-1"}
+
+    monkeypatch.setattr(disk.DataPlane, "request", fake_request)
+    plane = disk.DataPlane("https://example.test", "/group")
+
+    assert disk.bake(plane, "dz", "ghcr.io/org/dz@" + NEW, 600)["id"] == "disk-1"
+    assert seen == [600]

@@ -173,8 +173,29 @@ worker-role:
       --subscription "{{ subscription }}" \
       --resource-group "{{ rg }}" \
       --query "[?name=='{{ sandbox_group }}'].id" -o tsv)"
-    az role assignment create --assignee "$api_id" --role AcrPull --scope "$acr_id" || true
-    az role assignment create --assignee "$worker_id" --role AcrPull --scope "$acr_id" || true
+    # Grant a role to an app's managed identity unless it already has it.
+    # The principal type is passed explicitly: this account's right to assign
+    # roles carries a condition that only admits service principals, and
+    # `--assignee` leaves the type out when it cannot query Microsoft Graph.
+    grant() {
+      local principal="$1" role="$2" scope="$3"
+      local existing
+      existing="$(az role assignment list --scope "$scope" --role "$role" \
+        --query "[?principalId=='$principal'] | [0].id" -o tsv)"
+      if [[ -n "$existing" ]]; then
+        echo "$role already granted to $principal"
+        return 0
+      fi
+      az role assignment create \
+        --assignee-object-id "$principal" \
+        --assignee-principal-type ServicePrincipal \
+        --role "$role" \
+        --scope "$scope" \
+        -o none
+      echo "$role granted to $principal"
+    }
+    grant "$api_id" AcrPull "$acr_id"
+    grant "$worker_id" AcrPull "$acr_id"
     bind_registry() {
       local name="$1"
       local current
@@ -192,10 +213,7 @@ worker-role:
       echo "No sandbox group yet. Run: just sandbox-group && just worker-role" >&2
       exit 1
     fi
-    az role assignment create \
-      --assignee "$worker_id" \
-      --role "Container Apps SandboxGroup Data Owner" \
-      --scope "$sandbox_id" || true
+    grant "$worker_id" "Container Apps SandboxGroup Data Owner" "$sandbox_id"
 
 # Bake the Dangerzone disk for the upstream image's current digest (reused only
 # while that digest is unchanged) and set BLUEPAPER_SANDBOX_DISK_ID on the worker.
