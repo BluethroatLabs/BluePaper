@@ -42,7 +42,17 @@ var envName = '${prefix}-env'
 var apiName = '${prefix}-api'
 var workerName = '${prefix}-worker'
 var sandboxGroupName = '${prefix}-sandboxes'
-var acrServer = split(apiImage, '/')[0]
+var registryServer = split(apiImage, '/')[0]
+// An Azure registry is pulled with the app's own identity. Any other registry
+// (the images live in ghcr.io) must be public and needs no entry.
+var registries = endsWith(registryServer, '.azurecr.io')
+  ? [
+      {
+        server: registryServer
+        identity: 'system'
+      }
+    ]
+  : []
 var workerEnv = concat([
   { name: 'BLUEPAPER_API_KEY', secretRef: 'api-key' }
   { name: 'BLUEPAPER_STORAGE_BACKEND', value: 'azure' }
@@ -138,12 +148,7 @@ resource apiApp 'Microsoft.App/containerApps@2025-07-01' = {
         { name: 'github-client-secret', value: githubClientSecret }
         { name: 'turnstile-secret', value: turnstileSecret }
       ]
-      registries: [
-        {
-          server: acrServer
-          identity: 'system'
-        }
-      ]
+      registries: registries
     }
     template: {
       containers: [
@@ -187,12 +192,7 @@ resource workerApp 'Microsoft.App/containerApps@2025-07-01' = {
       secrets: [
         { name: 'api-key', value: apiKey }
       ]
-      registries: [
-        {
-          server: acrServer
-          identity: 'system'
-        }
-      ]
+      registries: registries
     }
     template: {
       containers: [

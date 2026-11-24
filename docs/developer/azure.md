@@ -4,18 +4,21 @@ Single-tenant conversion API in the operator’s subscription. Architecture: [AR
 
 ## Images
 
+Images live in the GitHub registry as `ghcr.io/bluethroatlabs/bluepaper-api` and `ghcr.io/bluethroatlabs/bluepaper-worker`. Both packages are public: Container Apps pull them without credentials, and the code in them is this repository. A tag deploy (below) builds and pushes them. To push a build by hand:
+
 ```bash
-TOKEN=$(az acr login --name "${ACR%%.*}" --expose-token --output tsv --query accessToken)
-printf '%s\n' "$TOKEN" | podman login "$ACR" \
-  --username 00000000-0000-0000-0000-000000000000 \
-  --password-stdin
+REGISTRY=ghcr.io/bluethroatlabs
+gh auth refresh --scopes write:packages   # once
+gh auth token | podman login ghcr.io --username "$(gh api user --jq .login)" --password-stdin
 podman build --platform linux/amd64 -f Dockerfile.api \
   --build-arg "SOURCE_COMMIT=$(git rev-parse HEAD)" \
-  -t "$ACR/bluepaper-api:latest" .
-podman build --platform linux/amd64 -f Dockerfile.worker -t "$ACR/bluepaper-worker:latest" .
-podman push "$ACR/bluepaper-api:latest"
-podman push "$ACR/bluepaper-worker:latest"
+  -t "$REGISTRY/bluepaper-api:latest" .
+podman build --platform linux/amd64 -f Dockerfile.worker -t "$REGISTRY/bluepaper-worker:latest" .
+podman push "$REGISTRY/bluepaper-api:latest"
+podman push "$REGISTRY/bluepaper-worker:latest"
 ```
+
+An Azure registry also works: set `REGISTRY=myregistry.azurecr.io` for the `just` recipes. The template then has each app pull with its own identity, and `just worker-role` grants AcrPull.
 
 The API image must not run document parsers. The worker image includes PyMuPDF and Tesseract for `pixels_to_pdf` only.
 
@@ -29,8 +32,8 @@ az deployment group create \
   --parameters apiKey="$BLUEPAPER_API_KEY" \
                githubClientId="$BLUEPAPER_GITHUB_CLIENT_ID" \
                githubClientSecret="$BLUEPAPER_GITHUB_CLIENT_SECRET" \
-               apiImage="$ACR/bluepaper-api:latest" \
-               workerImage="$ACR/bluepaper-worker:latest"
+               apiImage="$REGISTRY/bluepaper-api:latest" \
+               workerImage="$REGISTRY/bluepaper-worker:latest"
 ```
 
 If the preview `sandboxGroups` resource fails, create it with the `aca` CLI (`aca sandboxgroup create --name bluepaper-sandboxes --location <region> --set-config`) and set `BLUEPAPER_SANDBOX_GROUP`.
@@ -47,6 +50,23 @@ az role assignment create \
 ```
 
 `just deploy` bakes the Dangerzone disk for the upstream image's current digest, or reuses the disk already baked from that digest, and sets `BLUEPAPER_SANDBOX_DISK_ID` on the worker. `just disk` does that step alone. Run it after each upstream image release. Confirm with `aca doctor`.
+
+## Deploy on tag
+
+Pushing a `v*` tag that is on `main` runs [bluepaper-deploy.yml](../../.github/workflows/bluepaper-deploy.yml): the checks from [bluepaper-ci.yml](../../.github/workflows/bluepaper-ci.yml), then both image builds, a push to the GitHub registry, and an update of the two Container Apps to the pushed digests. The run fails unless `GET /v1/source` on the public hostname reports the tagged commit.
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+gh workflow run bluepaper-deploy.yml --ref v1.2.2   # redeploy or roll back
+```
+
+It ships images only. Template changes still need `just infra`, a new upstream converter image needs `just disk`, and Front Door changes need `just front-door`. The tag deploy also moves `latest`, so `just infra` on its own deploys the last release.
+
+Three things have to be in place:
+
+- **Azure sign-in.** The workflow uses OIDC as the app registration named by the `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` repository secrets. No password is stored. The app has a federated credential for the subject `repo:BluethroatLabs@116263537/BluePaper@1361172318:environment:production` (GitHub's immutable subject format, which carries the owner and repository ids) and Contributor on the resource group. Container Apps Contributor would be enough. It has no role on any registry.
+- **The `production` environment.** It decides which runs may sign in. Its deployment rules must allow `v*` tags, because a tag deploy runs on the tag and not on `main`. Keep its required reviewers: any run that names the environment can sign in.
+- **Public packages.** A package is private when it is first pushed, and the first deploy stops with the link to change that. Make both packages public once, in each package's settings, then re-run the job.
 
 ## Operator config
 
