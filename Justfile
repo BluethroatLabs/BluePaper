@@ -4,11 +4,15 @@
 #   /subscriptions/1e238434-310b-4bcd-ab1f-a9381d170243/resourceGroups/rg-bluepaper-wehi-sandbox
 #
 # Prereqs: `az login`, Podman, API and GitHub App credentials (env or `.env`).
-# Images go to ACR. Pass `acr=myregistry.azurecr.io` or set `ACR` if the RG has none.
+# Images live in ghcr.io/bluethroatlabs, where a `v*` tag deploy pushes them
+# (.github/workflows/bluepaper-deploy.yml). The packages are public, and
+# `just build` needs `gh` with the write:packages scope to push there.
+# Pass `registry=myregistry.azurecr.io` or set `REGISTRY` for an Azure registry.
 #
 #   just              # this list
 #   just use          # select the subscription
 #   just deploy       # build, push, bicep, sandbox disk, worker role
+#   just infra        # bicep only, with the images already in the registry
 #   just openapi      # write docs/openapi.json
 #   just disk         # bake the Dangerzone disk for the current upstream image and set it on the worker
 #   just smoke        # GET /healthz and /openapi.json
@@ -29,7 +33,7 @@ public_host := "bluepaper.bluethroatlabs.com"
 sandbox_group := "bluepaper-sandboxes"
 dangerzone_image := "ghcr.io/freedomofpress/dangerzone/v1:latest"
 tag := env("TAG", "latest")
-acr := env("ACR", "bsspike08250621.azurecr.io")
+registry := env("REGISTRY", "ghcr.io/bluethroatlabs")
 
 export AZURE_SUBSCRIPTION_ID := subscription
 export BLUEPAPER_AZURE_SUBSCRIPTION_ID := subscription
@@ -47,24 +51,37 @@ use:
     az account set --subscription "{{ subscription }}"
     az group show --name "{{ rg }}" --output table
 
-# Build linux/amd64 API and worker images and push them to ACR.
+# Build linux/amd64 API and worker images and push them to the registry.
 build:
     #!/usr/bin/env bash
     set -euo pipefail
-    az account set --subscription "{{ subscription }}"
-    acr="$(just acr='{{ acr }}' _acr)"
-    token="$(az acr login --name "${acr%%.*}" --expose-token --output tsv --query accessToken)"
-    printf '%s\n' "$token" | podman login "$acr" \
-      --username 00000000-0000-0000-0000-000000000000 \
-      --password-stdin
+    registry="{{ registry }}"
+    host="${registry%%/*}"
+    if [[ "$host" == *.azurecr.io ]]; then
+      az account set --subscription "{{ subscription }}"
+      token="$(az acr login --name "${host%%.*}" --expose-token --output tsv --query accessToken)"
+      printf '%s\n' "$token" | podman login "$host" \
+        --username 00000000-0000-0000-0000-000000000000 \
+        --password-stdin
+    else
+      # Pushing a package needs a scope `gh auth login` does not ask for:
+      #   gh auth refresh --scopes write:packages
+      gh auth token | podman login "$host" \
+        --username "$(gh api user --jq .login)" \
+        --password-stdin
+    fi
     commit="$(git rev-parse HEAD)"
+    # The source label links each package to its repository.
+    source="org.opencontainers.image.source=https://github.com/BluethroatLabs/BluePaper"
     podman build --platform linux/amd64 -f Dockerfile.api \
       --build-arg "SOURCE_COMMIT=${commit}" \
-      -t "$acr/{{ api_name }}:{{ tag }}" .
+      --label "$source" \
+      -t "$registry/{{ api_name }}:{{ tag }}" .
     podman build --platform linux/amd64 -f Dockerfile.worker \
-      -t "$acr/{{ worker_name }}:{{ tag }}" .
-    podman push "$acr/{{ api_name }}:{{ tag }}"
-    podman push "$acr/{{ worker_name }}:{{ tag }}"
+      --label "$source" \
+      -t "$registry/{{ worker_name }}:{{ tag }}" .
+    podman push "$registry/{{ api_name }}:{{ tag }}"
+    podman push "$registry/{{ worker_name }}:{{ tag }}"
 
 # Deploy Container Apps, storage, and (if the preview type works) the sandbox group.
 infra:
@@ -75,7 +92,7 @@ infra:
     : "${BLUEPAPER_GITHUB_CLIENT_SECRET:?Set BLUEPAPER_GITHUB_CLIENT_SECRET in the environment or .env}"
     : "${TURNSTILE_SECRET:?Set TURNSTILE_SECRET in the environment or .env}"
     az account set --subscription "{{ subscription }}"
-    acr="$(just acr='{{ acr }}' _acr)"
+    registry="{{ registry }}"
     endpoint_host="$(az afd endpoint show \
       --subscription "{{ subscription }}" \
       --resource-group "{{ edge_rg }}" \
@@ -110,18 +127,15 @@ infra:
         githubClientSecret="$BLUEPAPER_GITHUB_CLIENT_SECRET" \
         turnstileSecret="$TURNSTILE_SECRET" \
         turnstileHostnames="$turnstile_host" \
-        apiImage="$acr/{{ api_name }}:{{ tag }}" \
-        workerImage="$acr/{{ worker_name }}:{{ tag }}" \
+        apiImage="$registry/{{ api_name }}:{{ tag }}" \
+        workerImage="$registry/{{ worker_name }}:{{ tag }}" \
         "${disk_args[@]}"
     # The template image stays `:latest`. Container Apps pins the digest
     # when a revision is created, and setting that same tag again does not
     # pull the manifest just pushed. Point each app at the tag's digest.
     for name in "{{ api_name }}" "{{ worker_name }}"; do
-      digest="$(az acr repository show \
-        --name "${acr%%.*}" \
-        --image "$name:{{ tag }}" \
-        --query digest -o tsv)"
-      target="$acr/$name@$digest"
+      digest="$(just _digest "$registry/$name:{{ tag }}")"
+      target="$registry/$name@$digest"
       current="$(az containerapp show \
         --subscription "{{ subscription }}" \
         --resource-group "{{ rg }}" \
@@ -160,13 +174,14 @@ sandbox-group:
       --resource-group "{{ rg }}" \
       --set-config
 
-# Grant the worker SandboxGroup Data Owner, AcrPull, and ACR on both apps.
+# With an Azure registry, both apps also get AcrPull and pull with their identities.
+# Grant the worker SandboxGroup Data Owner.
 worker-role:
     #!/usr/bin/env bash
     set -euo pipefail
     az account set --subscription "{{ subscription }}"
-    acr="$(just acr='{{ acr }}' _acr)"
-    acr_id="$(az acr show --name "${acr%%.*}" --query id -o tsv)"
+    registry="{{ registry }}"
+    host="${registry%%/*}"
     api_id="$(az containerapp show -g "{{ rg }}" -n "{{ api_name }}" --query identity.principalId -o tsv)"
     worker_id="$(az containerapp show -g "{{ rg }}" -n "{{ worker_name }}" --query identity.principalId -o tsv)"
     sandbox_id="$(az resource list \
@@ -194,21 +209,26 @@ worker-role:
         -o none
       echo "$role granted to $principal"
     }
-    grant "$api_id" AcrPull "$acr_id"
-    grant "$worker_id" AcrPull "$acr_id"
     bind_registry() {
       local name="$1"
       local current
       current="$(az containerapp show -g "{{ rg }}" -n "$name" \
-        --query "properties.configuration.registries[?server=='$acr'].identity | [0]" -o tsv)"
+        --query "properties.configuration.registries[?server=='$host'].identity | [0]" -o tsv)"
       if [[ "$current" == "system" ]]; then
-        echo "$name already pulls $acr with system identity"
+        echo "$name already pulls $host with system identity"
         return 0
       fi
-      az containerapp registry set -g "{{ rg }}" -n "$name" --server "$acr" --identity system
+      az containerapp registry set -g "{{ rg }}" -n "$name" --server "$host" --identity system
     }
-    bind_registry "{{ api_name }}"
-    bind_registry "{{ worker_name }}"
+    if [[ "$host" == *.azurecr.io ]]; then
+      acr_id="$(az acr show --name "${host%%.*}" --query id -o tsv)"
+      grant "$api_id" AcrPull "$acr_id"
+      grant "$worker_id" AcrPull "$acr_id"
+      bind_registry "{{ api_name }}"
+      bind_registry "{{ worker_name }}"
+    else
+      echo "$host images are public: no pull role or registry binding"
+    fi
     if [[ -z "$sandbox_id" ]]; then
       echo "No sandbox group yet. Run: just sandbox-group && just worker-role" >&2
       exit 1
@@ -288,15 +308,20 @@ spike:
     export BLUEPAPER_AZURE_REGION="$(az group show --name "{{ rg }}" --query location -o tsv)"; \
     poetry run python dev_scripts/aca_spike.py
 
+# Print the digest a tag points at right now. An Azure registry is asked
+# through the CLI. Any other registry is asked without credentials, so the
+# image must be public, as it must be for Container Apps to pull it.
 [private]
-_acr:
-    if [[ -n "{{ acr }}" ]]; then \
-      echo "{{ acr }}"; \
-    else \
-      server="$(az acr list --subscription "{{ subscription }}" --resource-group "{{ rg }}" --query "[0].loginServer" -o tsv)"; \
-      if [[ -z "$server" ]]; then \
-        echo "No ACR in {{ rg }}. Pass acr=myregistry.azurecr.io or set ACR." >&2; \
-        exit 1; \
-      fi; \
-      echo "$server"; \
+_digest image:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    image="{{ image }}"
+    host="${image%%/*}"
+    if [[ "$host" == *.azurecr.io ]]; then
+      az acr repository show \
+        --name "${host%%.*}" \
+        --image "${image#*/}" \
+        --query digest -o tsv
+    else
+      python3 -c 'import sys; sys.path.insert(0, "dev_scripts"); from ensure_sandbox_disk import resolve_digest; print(resolve_digest(sys.argv[1]))' "$image"
     fi

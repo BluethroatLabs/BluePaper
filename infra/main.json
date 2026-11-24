@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.48.1.52935",
-      "templateHash": "8006407035551311992"
+      "version": "0.49.2.45890",
+      "templateHash": "9068613343041307086"
     }
   },
   "parameters": {
@@ -93,7 +93,8 @@
     "apiName": "[format('{0}-api', parameters('prefix'))]",
     "workerName": "[format('{0}-worker', parameters('prefix'))]",
     "sandboxGroupName": "[format('{0}-sandboxes', parameters('prefix'))]",
-    "acrServer": "[split(parameters('apiImage'), '/')[0]]",
+    "registryServer": "[split(parameters('apiImage'), '/')[0]]",
+    "registries": "[if(endsWith(variables('registryServer'), '.azurecr.io'), createArray(createObject('server', variables('registryServer'), 'identity', 'system')), createArray())]",
     "workerEnv": "[concat(createArray(createObject('name', 'BLUEPAPER_API_KEY', 'secretRef', 'api-key'), createObject('name', 'BLUEPAPER_STORAGE_BACKEND', 'value', 'azure'), createObject('name', 'BLUEPAPER_ISOLATION', 'value', 'aca'), createObject('name', 'BLUEPAPER_AZURE_STORAGE_ACCOUNT', 'value', variables('storageName')), createObject('name', 'BLUEPAPER_AZURE_SUBSCRIPTION_ID', 'value', subscription().subscriptionId), createObject('name', 'BLUEPAPER_AZURE_RESOURCE_GROUP', 'value', resourceGroup().name), createObject('name', 'BLUEPAPER_AZURE_REGION', 'value', parameters('location')), createObject('name', 'BLUEPAPER_SANDBOX_GROUP', 'value', variables('sandboxGroupName'))), if(empty(parameters('sandboxDiskId')), createArray(), createArray(createObject('name', 'BLUEPAPER_SANDBOX_DISK_ID', 'value', parameters('sandboxDiskId')))))]",
     "blobContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
     "queueContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '974c5e8b-45b9-4653-ba55-5f855dd0fb88')]",
@@ -201,12 +202,7 @@
               "value": "[parameters('turnstileSecret')]"
             }
           ],
-          "registries": [
-            {
-              "server": "[variables('acrServer')]",
-              "identity": "system"
-            }
-          ]
+          "registries": "[variables('registries')]"
         },
         "template": {
           "containers": [
@@ -290,12 +286,7 @@
               "value": "[parameters('apiKey')]"
             }
           ],
-          "registries": [
-            {
-              "server": "[variables('acrServer')]",
-              "identity": "system"
-            }
-          ]
+          "registries": "[variables('registries')]"
         },
         "template": {
           "containers": [

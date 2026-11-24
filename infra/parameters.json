@@ -3,7 +3,7 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "prefix": { "value": "bluepaper" },
-    "apiImage": { "value": "example.azurecr.io/bluepaper-api:latest" },
-    "workerImage": { "value": "example.azurecr.io/bluepaper-worker:latest" }
+    "apiImage": { "value": "ghcr.io/bluethroatlabs/bluepaper-api:latest" },
+    "workerImage": { "value": "ghcr.io/bluethroatlabs/bluepaper-worker:latest" }
   }
 }

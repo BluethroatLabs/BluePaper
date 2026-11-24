@@ -1,0 +1,214 @@
+# Ship a tagged commit: build both images, push them to the GitHub registry,
+# point the two Container Apps at the pushed digests, and check the public site
+# serves the tag.
+#
+#   git tag v1.2.3 && git push origin v1.2.3
+#
+# To redeploy or roll back, run this workflow by hand on an existing tag:
+#
+#   gh workflow run bluepaper-deploy.yml --ref v1.2.2
+#
+# This ships images only. It does not apply infra/main.bicep, bake the sandbox
+# disk, or touch Front Door. Run `just infra`, `just disk`, or `just front-door`
+# for those (see docs/developer/azure.md).
+#
+# Images are pushed with the run's own GitHub token. The two packages must be
+# public: Container Apps pull them without credentials.
+#
+# Azure login is OIDC, with no stored password. The federated credential trusts
+# the `production` environment of this repository, so only the deploy job can
+# sign in. The identity needs Contributor (or Container Apps Contributor) on the
+# resource group and nothing on any registry.
+name: BluePaper deploy
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time. A second tag waits for the first to finish.
+concurrency:
+  group: bluepaper-deploy
+  cancel-in-progress: false
+
+# Same targets as the Justfile.
+env:
+  RESOURCE_GROUP: rg-bluepaper-wehi-sandbox
+  REGISTRY: ghcr.io/bluethroatlabs
+  API_APP: bluepaper-api
+  WORKER_APP: bluepaper-worker
+  PUBLIC_URL: https://bluepaper.bluethroatlabs.com
+
+jobs:
+  tag:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Require a release tag on main
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$REF_TYPE" != "tag" ]]; then
+            echo "::error::Run this workflow on a tag, not on $REF_TYPE '$TAG'."
+            exit 1
+          fi
+          # The tag becomes the image tag, so it must be a valid one.
+          if [[ ! "$TAG" =~ ^v[0-9][0-9A-Za-z._-]*$ ]]; then
+            echo "::error::Tag '$TAG' is not a release tag such as v1.2.3."
+            exit 1
+          fi
+          # main only takes reviewed pull requests, and anyone with write
+          # access can push a tag. Deploy only commits that reached main.
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag '$TAG' ($GITHUB_SHA) is not on main."
+            exit 1
+          fi
+
+  checks:
+    name: Checks
+    needs: tag
+    uses: ./.github/workflows/bluepaper-ci.yml
+
+  deploy:
+    name: Deploy
+    needs: [tag, checks]
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ env.PUBLIC_URL }}
+    permissions:
+      contents: read
+      id-token: write # OIDC token for the Azure login
+      packages: write # push the images
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Log in to the registry
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s\n' "$GITHUB_TOKEN" | podman login "${REGISTRY%%/*}" \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin
+
+      - name: Build the images
+        run: |
+          # The source label links each package to this repository.
+          source="org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          podman build --platform linux/amd64 -f Dockerfile.api \
+            --build-arg "SOURCE_COMMIT=$GITHUB_SHA" \
+            --label "$source" \
+            -t "$REGISTRY/$API_APP:$TAG" -t "$REGISTRY/$API_APP:latest" .
+          podman build --platform linux/amd64 -f Dockerfile.worker \
+            --label "$source" \
+            -t "$REGISTRY/$WORKER_APP:$TAG" -t "$REGISTRY/$WORKER_APP:latest" .
+
+      # `latest` moves too, so a later `just infra` without TAG resolves to
+      # this release and not to an older build.
+      - name: Push the images
+        id: push
+        run: |
+          for app in "$API_APP" "$WORKER_APP"; do
+            podman push --digestfile "$RUNNER_TEMP/$app.digest" "$REGISTRY/$app:$TAG"
+            podman push "$REGISTRY/$app:latest"
+          done
+          echo "api=$(cat "$RUNNER_TEMP/$API_APP.digest")" >> "$GITHUB_OUTPUT"
+          echo "worker=$(cat "$RUNNER_TEMP/$WORKER_APP.digest")" >> "$GITHUB_OUTPUT"
+
+      # A package is private when it is first pushed. Stop here with the fix,
+      # before an app is pointed at an image it cannot pull.
+      - name: Check the images are public
+        env:
+          API_DIGEST: ${{ steps.push.outputs.api }}
+          WORKER_DIGEST: ${{ steps.push.outputs.worker }}
+        run: |
+          for image in "$API_APP@$API_DIGEST" "$WORKER_APP@$WORKER_DIGEST"; do
+            if ! skopeo inspect --no-creds --raw "docker://$REGISTRY/$image" > /dev/null; then
+              echo "::error::$REGISTRY/${image%@*} cannot be pulled without credentials. Make the package public at $GITHUB_SERVER_URL/orgs/$GITHUB_REPOSITORY_OWNER/packages/container/${image%@*}/settings, then re-run this job."
+              exit 1
+            fi
+          done
+
+      - name: Log in to Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # By digest, as `just infra` does: Container Apps pins the digest when a
+      # revision is created, and setting a tag it already has pulls nothing.
+      - name: Point the apps at the new images
+        env:
+          API_DIGEST: ${{ steps.push.outputs.api }}
+          WORKER_DIGEST: ${{ steps.push.outputs.worker }}
+        run: |
+          az containerapp update \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WORKER_APP" \
+            --image "$REGISTRY/$WORKER_APP@$WORKER_DIGEST" \
+            --output none
+          az containerapp update \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$API_APP" \
+            --image "$REGISTRY/$API_APP@$API_DIGEST" \
+            --output none
+
+      # A revision that never becomes ready leaves the previous one serving.
+      - name: Wait for the new revisions
+        run: |
+          deadline=$((SECONDS + 600))
+          for app in "$WORKER_APP" "$API_APP"; do
+            until [[ "$(az containerapp show \
+                --resource-group "$RESOURCE_GROUP" \
+                --name "$app" \
+                --query "properties.latestReadyRevisionName == properties.latestRevisionName" \
+                --output tsv)" == "true" ]]; do
+              if (( SECONDS >= deadline )); then
+                echo "::error::The new revision of $app did not become ready. The previous revision is still serving."
+                exit 1
+              fi
+              echo "waiting for $app"
+              sleep 10
+            done
+            echo "$app is ready"
+          done
+
+      # The API image carries its commit (GET /v1/source), so this proves the
+      # public hostname serves the code that was tagged.
+      - name: Check the public site serves this commit
+        run: |
+          deadline=$((SECONDS + 300))
+          until [[ "$(curl -fsS --max-time 15 "$PUBLIC_URL/v1/source" | jq -r .commit)" == "$GITHUB_SHA" ]]; do
+            if (( SECONDS >= deadline )); then
+              echo "::error::$PUBLIC_URL/v1/source does not report $GITHUB_SHA."
+              exit 1
+            fi
+            echo "waiting for $PUBLIC_URL to serve $GITHUB_SHA"
+            sleep 10
+          done
+          curl -fsS --max-time 15 "$PUBLIC_URL/healthz"
+          echo
+
+      - name: Summary
+        env:
+          API_DIGEST: ${{ steps.push.outputs.api }}
+          WORKER_DIGEST: ${{ steps.push.outputs.worker }}
+        run: |
+          {
+            echo "Deployed \`$TAG\` (\`$GITHUB_SHA\`) to $PUBLIC_URL"
+            echo
+            echo "- \`$REGISTRY/$API_APP@$API_DIGEST\`"
+            echo "- \`$REGISTRY/$WORKER_APP@$WORKER_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"

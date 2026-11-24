@@ -1,0 +1,85 @@
+# BluePaper checks: format, lint, test.
+#
+# The other workflows in this directory come from upstream Dangerzone and cover
+# the desktop app. This one covers the network service, on the Python version
+# the production images use.
+name: BluePaper CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  # The deploy workflow runs these checks on the tagged commit before it ships.
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request replaces the run in progress.
+concurrency:
+  group: bluepaper-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install Poetry
+        run: pipx install "poetry>=2,<3"
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: poetry
+      # Ruff alone, at the version in poetry.lock.
+      - name: Install the linters
+        run: poetry install --only lint --no-root
+      - name: Check formatting
+        run: poetry run ruff format --check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install Poetry
+        run: pipx install "poetry>=2,<3"
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: poetry
+      # mypy needs the packages the code imports, not only the linters.
+      - name: Install dependencies
+        run: poetry install --only main,bluepaper,test,lint
+      - name: Ruff
+        run: poetry run ruff check
+      - name: Mypy
+        run: poetry run mypy bluepaper dangerzone tests
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install Poetry
+        run: pipx install "poetry>=2,<3"
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: poetry
+      - name: Install dependencies
+        run: poetry install --only main,bluepaper,test
+      # tests/bluepaper/test_web_file_selection.py runs a Node script and is
+      # skipped when Node is missing. Fail here instead of skipping it.
+      - name: Check Node is present
+        run: node --version
+      # pytest-qt serves the desktop GUI tests. It loads Qt when pytest starts,
+      # and Qt needs system libraries these tests have no other use for.
+      - name: Run the BluePaper tests
+        run: poetry run pytest -p no:pytest-qt tests/bluepaper -q
